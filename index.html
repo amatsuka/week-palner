@@ -1,0 +1,630 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Нагрузка на неделю</title>
+<style>
+  :root{
+    --canvas:#E9ECEF; --surface:#FFFFFF; --ink:#16212B; --ink-soft:#5B6B79;
+    --line:#CBD4DC; --line-soft:#E3E8ED; --warn:#B4432B;
+    --r1:#2F6FD0; --r2:#0E9C9C; --r3:#D9701A; --r4:#7A57CE; --r5:#BE3B76; --r6:#3F8F3C;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--canvas);color:var(--ink);
+    font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.4}
+  .wrap{padding:14px;max-width:1600px;margin:0 auto}
+  h1{font-size:19px;font-weight:650;margin:0 0 2px;letter-spacing:-0.01em}
+  .sub{color:var(--ink-soft);font-size:13px;margin:0 0 12px}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);
+    border-radius:7px;padding:6px 11px;cursor:pointer}
+  button:hover{border-color:var(--ink-soft)}
+  .spacer{flex:1}
+  .load{color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .load b{color:var(--ink);font-weight:650}
+
+  .sync{font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
+  .sync.err{color:var(--warn);font-weight:650}
+  .authbar{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-soft);white-space:nowrap}
+  .authbar button{padding:4px 9px;font-size:12.5px}
+  .emailform{display:flex;gap:4px;align-items:center}
+  .emailform input{font:inherit;font-size:12.5px;padding:5px 7px;border:1px solid var(--line);
+    border-radius:6px;width:180px}
+
+  .toast{position:fixed;top:14px;right:14px;background:var(--ink);color:#fff;padding:9px 14px;
+    border-radius:8px;font-size:13px;box-shadow:0 8px 20px rgba(22,33,43,.3);z-index:200;
+    opacity:0;transform:translateY(-6px);transition:opacity .2s,transform .2s;pointer-events:none;max-width:320px}
+  .toast.show{opacity:1;transform:translateY(0)}
+
+  .layout{display:grid;grid-template-columns:262px minmax(0,1fr);gap:14px;align-items:start}
+  @media (max-width:880px){.layout{grid-template-columns:1fr}}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+  .pal{padding:10px;max-height:80vh;overflow:auto}
+  @media (max-width:880px){.pal{max-height:none}}
+  .role{margin-bottom:14px}
+  .role-h{display:flex;align-items:baseline;gap:6px;margin-bottom:6px}
+  .dot{width:9px;height:9px;border-radius:3px;flex:none;transform:translateY(-1px)}
+  .role-n{font-size:12.5px;font-weight:600;line-height:1.25}
+  .role-t{margin-left:auto;font-size:12px;color:var(--ink-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .card{position:relative;display:flex;gap:6px;align-items:baseline;border:1px solid var(--line);
+    border-left:4px solid var(--c);border-radius:6px;padding:5px 8px;margin-bottom:5px;background:var(--surface);
+    cursor:grab;touch-action:none;user-select:none;font-size:13px}
+  .card:after{content:"";position:absolute;inset:3px 3px -3px -3px;border:1px solid var(--line);
+    border-radius:6px;z-index:-1;background:var(--surface)}
+  .card.sel{border-color:var(--c);box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 30%,transparent)}
+  .card .nm{flex:1;min-width:0}
+  .card .stat{flex:none;width:64px;text-align:right;font-size:11.5px;color:var(--ink-soft);
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .card .stat b{color:var(--ink);font-weight:650}
+
+  .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--line-soft);
+    border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+  @media (max-width:880px){.week{grid-template-columns:1fr}}
+  .day{background:var(--surface);min-height:190px;display:flex;flex-direction:column}
+  .dhead{padding:7px 8px 5px;border-bottom:1px solid var(--line-soft);display:flex;align-items:baseline;gap:5px}
+  .dname{font-size:12px;color:var(--ink-soft)}
+  .dnum{font-size:13px;font-weight:600}
+  .dsum{margin-left:auto;font-size:11.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  .dsum.over{color:var(--warn);font-weight:650}
+  .pool{flex:1;padding:6px;display:flex;flex-direction:column;gap:4px}
+  .pool.hot{background:color-mix(in srgb,var(--r1) 7%,#fff)}
+  .chip{position:relative;border:1px solid color-mix(in srgb,var(--c) 45%,#fff);border-left:3px solid var(--c);
+    background:color-mix(in srgb,var(--c) 11%,#fff);border-radius:6px;padding:4px 6px 4px 7px;
+    font-size:12px;line-height:1.25;cursor:grab;touch-action:none;user-select:none}
+  .chip .nm{padding-right:14px}
+  .chip .row{display:flex;align-items:center;gap:4px;margin-top:3px}
+  .chip .h{font-size:11.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;margin-left:auto}
+  .chip .b{width:19px;height:19px;line-height:17px;text-align:center;border-radius:5px;cursor:pointer;
+    border:1px solid color-mix(in srgb,var(--c) 40%,#fff);background:#fff;font-size:13px;color:var(--ink-soft)}
+  .chip .b:hover{color:var(--ink);border-color:var(--c)}
+  .chip .x{position:absolute;top:2px;right:3px;width:15px;height:15px;line-height:13px;text-align:center;
+    color:var(--ink-soft);cursor:pointer;font-size:13px;opacity:.55}
+  .chip .x:hover{opacity:1}
+  body.dragging{cursor:grabbing}
+  body.dragging .chip{pointer-events:none}
+  .ghost{position:fixed;z-index:99;pointer-events:none;border-radius:6px;padding:3px 7px;font-size:12px;
+    background:var(--surface);border:1px solid var(--c);border-left:4px solid var(--c);
+    box-shadow:0 6px 16px rgba(22,33,43,.22)}
+  .ghost.copy:after{content:"+";position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;line-height:15px;
+    text-align:center;font-size:13px;font-weight:700;color:#fff;background:var(--c);border-radius:50%}
+  .card.hl,.chip.hl{border-color:var(--c);box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 45%,transparent)}
+  .chip.hl{background:color-mix(in srgb,var(--c) 22%,#fff)}
+  body.hling .chip:not(.hl),body.hling .card:not(.hl){opacity:.4}
+  .tip{color:var(--ink-soft);font-size:12.5px;margin:10px 2px 0}
+</style>
+
+<div class="wrap">
+  <h1>Нагрузка на неделю</h1>
+  <p class="sub" id="range"></p>
+
+  <div class="bar">
+    <span class="load" id="load"></span>
+    <span class="spacer"></span>
+    <span class="sync" id="sync"></span>
+    <span class="authbar" id="authbar"></span>
+    <button id="copy">Скопировать план</button>
+    <button id="link">Ссылка на план</button>
+    <button id="export">Экспорт JSON</button>
+    <button id="import">Импорт JSON</button>
+    <input type="file" id="file" accept="application/json,.json" hidden>
+    <button id="clear">Очистить всё</button>
+  </div>
+
+  <div class="layout">
+    <div class="panel pal" id="pal"></div>
+    <div class="week" id="week"></div>
+  </div>
+  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кинул ещё раз или нажал «+» — объём растёт. Времени начала нет: порядок внутри дня твой. Задачу можно перетащить в другой день, с зажатым ⌘ — скопировать. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+/* =========================================================================
+   КОНФИГ — отредактируйте после создания проекта в Supabase (см. README.md).
+   ========================================================================= */
+const CONFIG = {
+  SUPABASE_URL: "https://YOUR-PROJECT-REF.supabase.co",
+  SUPABASE_ANON_KEY: "YOUR-ANON-PUBLIC-KEY",
+  REDIRECT_TO: "https://amatsuka.github.io/week-palner/",
+  WEEK: "2026-W37",
+  START: "2026-09-07",
+};
+/* ========================================================================= */
+
+const SUPA_CONFIGURED = !CONFIG.SUPABASE_URL.includes("YOUR-PROJECT")
+  && !CONFIG.SUPABASE_ANON_KEY.includes("YOUR-ANON");
+const supabase = SUPA_CONFIGURED
+  ? createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY)
+  : null;
+
+const DAYS = 7, STEP = 30;             // шаг объёма — 30 минут
+const DNAME = ["пн","вт","ср","чт","пт","сб","вс"];
+const MON = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+const START = (()=>{ const [y,m,d] = CONFIG.START.split("-").map(Number); return new Date(y,m-1,d); })();
+const dayDate = d => new Date(START.getFullYear(),START.getMonth(),START.getDate()+d);
+const iso = d => { const t=dayDate(d);
+  return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0"); };
+const fmt = m => m>=60 ? (+(m/60).toFixed(2))+" ч" : m+" мин";
+const escapeHtml = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let ROLES = [], TASKS = [];
+const byId = id => TASKS.find(t=>t.id===id);
+
+let items = [];             // {task, day, min}
+let localUpdatedAt = null;  // ISO-время последнего локального изменения / последней синхронизации
+const find = (task,day) => items.find(i=>i.task===task && i.day===day);
+
+const pal = document.getElementById("pal");
+const week = document.getElementById("week");
+
+const ROLES_KEY = "week-planner-roles";
+
+function setRoles(roles){
+  ROLES = Array.isArray(roles) ? roles : [];
+  TASKS = [];
+  ROLES.forEach((r,ri)=>(r.tasks||[]).forEach(t=>TASKS.push({id:t.id, name:t.name, role:ri, c:r.color})));
+}
+function persistRolesConfig(){
+  try{ localStorage.setItem(ROLES_KEY, JSON.stringify(ROLES)); }catch(e){}
+}
+function loadRolesConfig(){
+  try{
+    const raw = localStorage.getItem(ROLES_KEY);
+    if(raw){ setRoles(JSON.parse(raw)); return ROLES.length>0; }
+  }catch(e){}
+  return false;
+}
+function showEmptyState(){
+  pal.innerHTML = `<div style="padding:14px;color:var(--ink-soft);font-size:12.5px;line-height:1.6">
+    Нет ролей и задач. Нажмите «Импорт JSON» и загрузите файл с полем <code>roles</code>
+    (и, опционально, <code>blocks</code> — сразу с планом).</div>`;
+}
+
+function buildPalette(){
+  if(!ROLES.length){ showEmptyState(); return; }
+  pal.innerHTML = "";
+  ROLES.forEach((r,ri)=>{
+    const box = document.createElement("div"); box.className="role";
+    box.innerHTML = `<div class="role-h"><span class="dot" style="background:${r.color}"></span>
+      <span class="role-n">${escapeHtml(r.name)}</span><span class="role-t" data-role="${ri}"></span></div>`;
+    r.tasks.forEach(({id:tid,name})=>{
+      const c = document.createElement("div");
+      c.className="card"; c.style.setProperty("--c",r.color); c.dataset.task=tid;
+      c.innerHTML = `<span class="nm">${escapeHtml(name)}</span><span class="stat" data-stat="${tid}"></span>`;
+      box.appendChild(c);
+    });
+    pal.appendChild(box);
+  });
+}
+
+function buildWeek(){
+  week.innerHTML = "";
+  for(let d=0;d<DAYS;d++){
+    const dt = dayDate(d);
+    const col = document.createElement("div"); col.className="day";
+    col.innerHTML = `<div class="dhead">
+        <span class="dname">${DNAME[(dt.getDay()+6)%7]}</span>
+        <span class="dnum">${dt.getDate()} ${MON[dt.getMonth()]}</span>
+        <span class="dsum" data-daysum="${d}"></span>
+      </div><div class="pool" data-day="${d}"></div>`;
+    week.appendChild(col);
+  }
+}
+
+function render(){
+  document.querySelectorAll(".pool").forEach(p=>p.innerHTML="");
+  items.forEach(i=>{
+    const t = byId(i.task); if(!t) return;
+    const pool = week.querySelector(`.pool[data-day="${i.day}"]`); if(!pool) return;
+    const el = document.createElement("div");
+    el.className="chip"; el.style.setProperty("--c",t.c);
+    el.dataset.task=i.task; el.dataset.day=i.day;
+    el.innerHTML = `<div class="nm">${escapeHtml(t.name)}</div>
+      <div class="row"><span class="b" data-step="-1">−</span><span class="b" data-step="1">+</span>
+      <span class="h">${fmt(i.min)}</span></div>
+      <span class="x" data-del="1">×</span>`;
+    pool.appendChild(el);
+  });
+  totals();
+  if(hl){ const t=hl; hl=null; setHl(t); }
+}
+
+function totals(){
+  const perRole = ROLES.map(()=>0), perDay = Array(DAYS).fill(0), cnt = {}, sum = {};
+  items.forEach(i=>{ const t=byId(i.task); if(!t) return;
+    perRole[t.role]+=i.min; perDay[i.day]+=i.min;
+    cnt[i.task]=(cnt[i.task]||0)+1; sum[i.task]=(sum[i.task]||0)+i.min; });
+  document.querySelectorAll("[data-stat]").forEach(e=>{
+    const id=e.dataset.stat;
+    e.innerHTML = cnt[id] ? `<b>${cnt[id]}д</b> ${fmt(sum[id])}` : "";
+  });
+  document.querySelectorAll("[data-role]").forEach(e=>{
+    const v=perRole[+e.dataset.role]; e.textContent = v ? fmt(v) : "";
+  });
+  document.querySelectorAll("[data-daysum]").forEach(e=>{
+    const v=perDay[+e.dataset.daysum];
+    e.textContent = v ? fmt(v) : "";
+    e.classList.toggle("over", v > 480);
+  });
+  const wk = perDay.reduce((a,b)=>a+b,0), busy = perDay.filter(v=>v>0).length;
+  document.getElementById("load").innerHTML =
+    `За неделю: <b>${fmt(wk)}</b> &nbsp;·&nbsp; загруженных дней: <b>${busy} из 7</b>` +
+    (busy ? ` &nbsp;·&nbsp; в среднем: <b>${fmt(Math.round(wk/busy/30)*30)}</b>` : "");
+}
+
+/* ---------- локальное хранилище + синхронизация ---------- */
+const STORE_KEY = `plan-${CONFIG.WEEK}`;
+let session = null;
+let pushTimer = null;
+
+function persistLocal(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify({ items, updatedAt: localUpdatedAt })); }catch(e){}
+}
+function loadLocal(){
+  const h = location.hash.replace(/^#p=/,"");
+  if(h && h!==location.hash){
+    try{ items = unpackState(h); localUpdatedAt = new Date().toISOString(); persistLocal(); return; }catch(e){}
+  }
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){ const obj = JSON.parse(raw); items = Array.isArray(obj.items) ? obj.items : []; localUpdatedAt = obj.updatedAt || null; }
+  }catch(e){}
+}
+function commitLocal(){
+  localUpdatedAt = new Date().toISOString();
+  persistLocal(); render(); scheduleSync();
+}
+function applyRemote(remoteItems, remoteUpdatedAt){
+  items = remoteItems || []; localUpdatedAt = remoteUpdatedAt;
+  persistLocal(); render();
+}
+
+function setStatus(state){
+  const el = document.getElementById("sync");
+  el.className = "sync" + (state==="error" ? " err" : "");
+  el.textContent = {
+    saving: "Сохраняю…",
+    synced: "Синхронизировано",
+    offline: "Офлайн",
+    error: "Ошибка синхронизации",
+    magiclink: "Ссылка отправлена, проверьте почту",
+    unconfigured: "Supabase не настроен",
+    "": "",
+  }[state] ?? "";
+}
+
+function scheduleSync(){
+  if(!SUPA_CONFIGURED || !session) return;
+  setStatus("saving");
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushRemote, 800);
+}
+
+async function pushRemote(){
+  if(!SUPA_CONFIGURED || !session) return;
+  setStatus("saving");
+  try{
+    const { data, error } = await supabase.from("plans")
+      .upsert({ user_id: session.user.id, week: CONFIG.WEEK, items }, { onConflict: "user_id,week" })
+      .select("updated_at").single();
+    if(error) throw error;
+    localUpdatedAt = data.updated_at;
+    persistLocal();
+    setStatus("synced");
+  }catch(e){
+    setStatus(navigator.onLine ? "error" : "offline");
+  }
+}
+
+async function reconcile(){
+  if(!SUPA_CONFIGURED || !session) return;
+  setStatus("saving");
+  try{
+    const { data, error } = await supabase.from("plans")
+      .select("items,updated_at").eq("week", CONFIG.WEEK).maybeSingle();
+    if(error) throw error;
+    if(data){
+      const remoteTime = new Date(data.updated_at).getTime();
+      const localTime = localUpdatedAt ? new Date(localUpdatedAt).getTime() : 0;
+      if(remoteTime > localTime){
+        const changed = JSON.stringify(data.items||[]) !== JSON.stringify(items);
+        applyRemote(data.items, data.updated_at);
+        if(changed) toast("План обновлён с другого устройства");
+      } else if(localTime > remoteTime){
+        await pushRemote(); return;
+      }
+    } else if(items.length){
+      await pushRemote(); return;
+    }
+    setStatus("synced");
+  }catch(e){
+    setStatus(navigator.onLine ? "error" : "offline");
+  }
+}
+
+function toast(msg){
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>el.classList.remove("show"), 4000);
+}
+
+/* ---------- авторизация ---------- */
+let emailFormOpen = false;
+
+function updateAuthUI(){
+  const authbar = document.getElementById("authbar");
+  if(!SUPA_CONFIGURED){
+    authbar.innerHTML = "";
+    setStatus("unconfigured");
+    return;
+  }
+  if(!session){
+    authbar.innerHTML = emailFormOpen
+      ? `<span class="emailform"><input id="emailInput" type="email" placeholder="you@mail.com" autocomplete="email">
+          <button id="emailSend">Отправить ссылку</button></span>`
+      : `<button id="loginBtn">Войти</button>`;
+    if(!emailFormOpen) setStatus("");
+    bindAuthEvents();
+    return;
+  }
+  authbar.innerHTML = `<span>${escapeHtml(session.user.email)}</span><button id="logoutBtn">Выйти</button>`;
+  bindAuthEvents();
+}
+
+function bindAuthEvents(){
+  const loginBtn = document.getElementById("loginBtn");
+  if(loginBtn) loginBtn.onclick = ()=>{ emailFormOpen = true; updateAuthUI();
+    document.getElementById("emailInput")?.focus(); };
+  const sendBtn = document.getElementById("emailSend");
+  if(sendBtn) sendBtn.onclick = doMagicLink;
+  const emailInput = document.getElementById("emailInput");
+  if(emailInput) emailInput.addEventListener("keydown", e=>{ if(e.key==="Enter") doMagicLink(); });
+  const logoutBtn = document.getElementById("logoutBtn");
+  if(logoutBtn) logoutBtn.onclick = async ()=>{
+    try{ await supabase.auth.signOut(); }catch(e){}
+    session = null; updateAuthUI(); setStatus("");
+  };
+}
+
+async function doMagicLink(){
+  const input = document.getElementById("emailInput");
+  const email = input && input.value.trim();
+  if(!email) return;
+  try{
+    const { error } = await supabase.auth.signInWithOtp({ email, options:{ emailRedirectTo: CONFIG.REDIRECT_TO } });
+    if(error) throw error;
+    emailFormOpen = false; updateAuthUI(); setStatus("magiclink");
+  }catch(e){
+    setStatus(navigator.onLine ? "error" : "offline");
+  }
+}
+
+/* ---------- изменение объёма ---------- */
+function add(task,day,min){
+  const it = find(task,day);
+  if(it) it.min += min; else items.push({task,day,min});
+  commitLocal();
+}
+function bump(task,day,dir){
+  const it = find(task,day); if(!it) return;
+  it.min += dir*STEP;
+  if(it.min<=0) items = items.filter(x=>x!==it);
+  commitLocal();
+}
+
+/* ---------- перетаскивание ---------- */
+let drag=null, ghost=null, selected=null, downPool=null;
+
+document.addEventListener("pointerdown", e=>{
+  if(e.button && e.button!==0) return;
+  const chip = e.target.closest(".chip");
+  if(chip){
+    const task = chip.dataset.task, day = +chip.dataset.day;
+    if(e.target.closest("[data-del]")){ items = items.filter(i=>!(i.task===task&&i.day===day)); commitLocal(); return; }
+    const st = e.target.closest("[data-step]");
+    if(st){ bump(task,day,+st.dataset.step); return; }
+  }
+  const card = e.target.closest(".card");
+  downPool = (!card && !chip) ? e.target.closest(".pool") : null;
+  if(!card && !chip) return;
+  drag = {mode: card?"new":"move", task: card?card.dataset.task:chip.dataset.task,
+          from: chip?+chip.dataset.day:null, el: card||chip,
+          x0:e.clientX, y0:e.clientY, moved:false, copy:false};
+  e.target.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+
+document.addEventListener("pointermove", e=>{
+  if(!drag) return;
+  if(!drag.moved && Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0) < 5) return;
+  if(!drag.moved){
+    drag.moved = true; document.body.classList.add("dragging"); setHl(null);
+    const t = byId(drag.task);
+    ghost = document.createElement("div");
+    ghost.className="ghost"; ghost.style.setProperty("--c",t.c); ghost.textContent=t.name;
+    document.body.appendChild(ghost);
+  }
+  ghost.style.left=(e.clientX+12)+"px"; ghost.style.top=(e.clientY+12)+"px";
+  drag.copy = e.metaKey||e.altKey||e.ctrlKey;
+  ghost.classList.toggle("copy", drag.mode==="move" && drag.copy);
+  document.querySelectorAll(".pool.hot").forEach(p=>p.classList.remove("hot"));
+  const p = poolAt(e.clientX,e.clientY); if(p) p.classList.add("hot");
+});
+
+let hl = null;
+function setHl(task){
+  if(task===hl) return;
+  hl = task;
+  document.body.classList.toggle("hling", !!task);
+  document.querySelectorAll(".card,.chip").forEach(e=>e.classList.toggle("hl", !!task && e.dataset.task===task));
+}
+document.addEventListener("mouseover", e=>{
+  if(drag) return;
+  const el = e.target.closest(".card,.chip");
+  setHl(el ? el.dataset.task : null);
+});
+document.addEventListener("mouseleave", ()=>setHl(null));
+
+function poolAt(x,y){ const el=document.elementFromPoint(x,y); return el ? el.closest(".pool") : null; }
+
+document.addEventListener("pointerup", up);
+document.addEventListener("pointercancel", up);
+function up(e){
+  document.querySelectorAll(".pool.hot").forEach(p=>p.classList.remove("hot"));
+  if(!drag) return;
+  const d = drag; drag = null;
+  document.body.classList.remove("dragging");
+  if(ghost){ ghost.remove(); ghost=null; }
+
+  if(!d.moved){
+    if(d.mode==="new"){
+      document.querySelectorAll(".card.sel").forEach(c=>c.classList.remove("sel"));
+      if(selected===d.task) selected=null;
+      else { selected=d.task; d.el.classList.add("sel"); }
+    }
+    return;
+  }
+  const pool = poolAt(e.clientX,e.clientY);
+  const copy = d.mode==="move" && (e.metaKey||e.altKey||e.ctrlKey||d.copy);
+  if(!pool){
+    if(d.mode==="move" && !copy){ items = items.filter(i=>!(i.task===d.task&&i.day===d.from)); commitLocal(); }
+    return;
+  }
+  const day = +pool.dataset.day;
+  if(d.mode==="new"){ add(d.task,day,STEP); return; }
+  if(day===d.from) return;
+  const src = find(d.task,d.from); if(!src) return;
+  add(d.task,day,src.min);
+  if(!copy) items = items.filter(i=>i!==src);
+  commitLocal();
+}
+
+week.addEventListener("click", e=>{           // постановка тапом
+  if(!selected || !downPool) return;
+  const pool = e.target.closest(".pool"); downPool=null;
+  if(pool) add(selected, +pool.dataset.day, STEP);
+});
+
+/* ---------- ссылка на план (hash) ---------- */
+const packState = () => btoa(JSON.stringify(items.map(i=>[i.task,i.day,i.min])));
+function unpackState(str){
+  return JSON.parse(atob(str)).map(([task,day,min])=>({task,day:+day,min:+min}))
+    .filter(i=>byId(i.task) && i.day>=0 && i.day<DAYS && i.min>0);
+}
+
+/* ---------- кнопки ---------- */
+document.getElementById("clear").onclick = ()=>{
+  if(items.length && confirm("Очистить всю неделю?")){ items=[]; commitLocal(); }
+};
+document.getElementById("copy").onclick = ()=>{
+  const lines = [`Неделя ${CONFIG.WEEK}`,""];
+  for(let d=0; d<DAYS; d++){
+    const day = items.filter(i=>i.day===d); if(!day.length) continue;
+    const dt = dayDate(d), tot = day.reduce((a,b)=>a+b.min,0);
+    lines.push(`${DNAME[(dt.getDay()+6)%7]} ${dt.getDate()} ${MON[dt.getMonth()]} — ${fmt(tot)}`);
+    day.forEach(i=>lines.push(`  • ${byId(i.task).name} — ${fmt(i.min)}`));
+    lines.push("");
+  }
+  const txt = lines.length>2 ? lines.join("\n").trim() : "Пусто";
+  const ta = document.createElement("textarea");
+  ta.value = txt; ta.style.position="fixed"; ta.style.left="-9999px";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); }catch(e){}
+  navigator.clipboard && navigator.clipboard.writeText(txt).catch(()=>{});
+  ta.remove(); flash("copy","Скопировано","Скопировать план");
+};
+document.getElementById("export").onclick = ()=>{
+  const data = { version:2, start:iso(0), days:DAYS, week:CONFIG.WEEK, mode:"pool",
+    roles: ROLES,
+    blocks: items.map(i=>({ task:i.task, name:byId(i.task).name, role:ROLES[byId(i.task).role].name,
+      day:i.day, date:iso(i.day), minutes:i.min, hours:+(i.min/60).toFixed(2) })) };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+  const a = document.createElement("a"); a.href=url; a.download="plan-"+iso(0)+".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+};
+document.getElementById("link").onclick = ()=>{
+  location.hash = "p=" + packState();
+  const url = location.href;
+  const ta=document.createElement("textarea"); ta.value=url;
+  ta.style.position="fixed"; ta.style.left="-9999px";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); }catch(e){}
+  navigator.clipboard && navigator.clipboard.writeText(url).catch(()=>{});
+  ta.remove(); flash("link","Ссылка скопирована","Ссылка на план");
+};
+document.getElementById("import").onclick = ()=> document.getElementById("file").click();
+document.getElementById("file").onchange = ev=>{
+  const f = ev.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    try{
+      const data = JSON.parse(r.result);
+      let rolesLoaded = false;
+      if(!Array.isArray(data) && Array.isArray(data.roles) && data.roles.length){
+        setRoles(data.roles); persistRolesConfig(); buildPalette(); rolesLoaded = true;
+      }
+      const src = Array.isArray(data) ? data : data.blocks;
+      if(Array.isArray(src)){
+        const next = [];
+        src.forEach(b=>{
+          const t = byId(b.task) || TASKS.find(x=>x.name===b.name);
+          if(!t) return;
+          const day = b.day!==undefined ? +b.day : 0;
+          const min = b.minutes!==undefined ? +b.minutes
+                    : b.hours!==undefined ? Math.round(b.hours*60)
+                    : b.len!==undefined ? b.len*30 : 30;      // старый формат со слотами
+          if(day<0 || day>=DAYS || !min) return;
+          const ex = next.find(i=>i.task===t.id && i.day===day);
+          if(ex) ex.min += min; else next.push({task:t.id, day, min});
+        });
+        items = next; commitLocal();
+        flash("import", (rolesLoaded ? "Роли и план загружены: " : "Загружено: ")+next.length, "Импорт JSON");
+      } else if(rolesLoaded){
+        render();
+        flash("import","Роли и задачи загружены","Импорт JSON");
+      } else throw 0;
+    }catch(e){ flash("import","Файл не читается","Импорт JSON"); }
+  };
+  r.readAsText(f); ev.target.value="";
+};
+function flash(id,msg,back){ const b=document.getElementById(id); b.textContent=msg; setTimeout(()=>b.textContent=back,1600); }
+
+/* ---------- старт ---------- */
+async function init(){
+  const first = dayDate(0), last = dayDate(DAYS-1);
+  document.getElementById("range").textContent =
+    `${first.getDate()} ${MON[first.getMonth()]} – ${last.getDate()} ${MON[last.getMonth()]} ${first.getFullYear()} · ` +
+    `неделя ${CONFIG.WEEK} · объём задач без привязки ко времени`;
+
+  loadRolesConfig();
+  buildPalette(); buildWeek();
+
+  loadLocal();
+  render();                 // локальное состояние отрисовывается мгновенно, без сети
+
+  updateAuthUI();
+
+  if(SUPA_CONFIGURED){
+    try{
+      const { data:{ session: s } } = await supabase.auth.getSession();
+      session = s; updateAuthUI();
+      if(session) await reconcile();
+    }catch(e){ setStatus(navigator.onLine ? "error" : "offline"); }
+
+    supabase.auth.onAuthStateChange((_event, s2)=>{
+      const had = !!session;
+      session = s2; updateAuthUI();
+      if(session && !had) reconcile();
+    });
+
+    document.addEventListener("visibilitychange", ()=>{
+      if(document.visibilityState==="visible" && session) reconcile();
+    });
+    window.addEventListener("online", ()=>{ if(session) reconcile(); });
+    window.addEventListener("offline", ()=>{ if(session) setStatus("offline"); });
+  }
+}
+init();
+</script>
