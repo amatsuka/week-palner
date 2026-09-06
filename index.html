@@ -78,6 +78,10 @@
   .chip .x{position:absolute;top:2px;right:3px;width:15px;height:15px;line-height:13px;text-align:center;
     color:var(--ink-soft);cursor:pointer;font-size:13px;opacity:.55}
   .chip .x:hover{opacity:1}
+  .chip .done-toggle{font-weight:700}
+  .chip.done{opacity:.55}
+  .chip.done .nm{text-decoration:line-through}
+  .chip.done .done-toggle{color:var(--ink)}
   body.dragging{cursor:grabbing}
   body.dragging .chip{pointer-events:none}
   .ghost{position:fixed;z-index:99;pointer-events:none;border-radius:6px;padding:3px 7px;font-size:12px;
@@ -122,7 +126,7 @@
     <div class="panel pal" id="pal"></div>
     <div class="week" id="week"></div>
   </div>
-  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кинул ещё раз или нажал «+» — объём растёт. Времени начала нет: порядок внутри дня твой. Задачу можно перетащить в другой день, с зажатым ⌘ — скопировать. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кинул ещё раз или нажал «+» — объём растёт. «✓» на блоке отмечает его выполненным (зачёркивается, тускнеет), повторный клик — возвращает в план. Времени начала нет: порядок внутри дня твой. Задачу можно перетащить в другой день, с зажатым ⌘ — скопировать. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -323,10 +327,10 @@ function render(){
     const t = byId(i.task); if(!t) return;
     const pool = week.querySelector(`.pool[data-day="${i.day}"]`); if(!pool) return;
     const el = document.createElement("div");
-    el.className="chip"; el.style.setProperty("--c",t.c);
+    el.className="chip" + (i.done ? " done" : ""); el.style.setProperty("--c",t.c);
     el.dataset.task=i.task; el.dataset.day=i.day;
     el.innerHTML = `<div class="nm">${escapeHtml(t.name)}</div>
-      <div class="row"><span class="b" data-step="-1">−</span><span class="b" data-step="1">+</span>
+      <div class="row"><span class="b done-toggle" data-toggle-done="1" title="${i.done?"Вернуть в план":"Отметить выполненным"}">${i.done?"↺":"✓"}</span><span class="b" data-step="-1">−</span><span class="b" data-step="1">+</span>
       <span class="h">${fmt(i.min)}</span></div>
       <span class="x" data-del="1">×</span>`;
     pool.appendChild(el);
@@ -568,6 +572,11 @@ function bump(task,day,dir){
   if(it.min<=0) items = items.filter(x=>x!==it);
   commitLocal();
 }
+function toggleDone(task,day){
+  const it = find(task,day); if(!it) return;
+  it.done = !it.done;
+  commitLocal();
+}
 
 /* ---------- перетаскивание ---------- */
 let drag=null, ghost=null, selected=null, downPool=null;
@@ -580,6 +589,7 @@ document.addEventListener("pointerdown", e=>{
     if(e.target.closest("[data-del]")){ items = items.filter(i=>!(i.task===task&&i.day===day)); commitLocal(); return; }
     const st = e.target.closest("[data-step]");
     if(st){ bump(task,day,+st.dataset.step); return; }
+    if(e.target.closest("[data-toggle-done]")){ toggleDone(task,day); return; }
   }
   const card = e.target.closest(".card");
   downPool = (!card && !chip) ? e.target.closest(".pool") : null;
@@ -663,9 +673,9 @@ week.addEventListener("click", e=>{           // постановка тапом
 });
 
 /* ---------- ссылка на план (hash) ---------- */
-const packState = () => btoa(JSON.stringify(items.map(i=>[i.task,i.day,i.min])));
+const packState = () => btoa(JSON.stringify(items.map(i=>[i.task,i.day,i.min,i.done?1:0])));
 function unpackState(str){
-  return JSON.parse(atob(str)).map(([task,day,min])=>({task,day:+day,min:+min}))
+  return JSON.parse(atob(str)).map(([task,day,min,done])=>({task,day:+day,min:+min,done:!!done}))
     .filter(i=>byId(i.task) && i.day>=0 && i.day<DAYS && i.min>0);
 }
 
@@ -679,7 +689,7 @@ document.getElementById("copy").onclick = ()=>{
     const day = items.filter(i=>i.day===d); if(!day.length) continue;
     const dt = dayDate(d), tot = day.reduce((a,b)=>a+b.min,0);
     lines.push(`${DNAME[(dt.getDay()+6)%7]} ${dt.getDate()} ${MON[dt.getMonth()]} — ${fmt(tot)}`);
-    day.forEach(i=>lines.push(`  • ${byId(i.task).name} — ${fmt(i.min)}`));
+    day.forEach(i=>lines.push(`  ${i.done?"✓":"•"} ${byId(i.task).name} — ${fmt(i.min)}`));
     lines.push("");
   }
   const txt = lines.length>2 ? lines.join("\n").trim() : "Пусто";
@@ -694,7 +704,7 @@ document.getElementById("export").onclick = ()=>{
   const data = { version:2, start:iso(0), days:DAYS, week:CONFIG.WEEK, mode:"pool",
     roles: ROLES,
     blocks: items.map(i=>({ task:i.task, name:byId(i.task).name, role:ROLES[byId(i.task).role].name,
-      day:i.day, date:iso(i.day), minutes:i.min, hours:+(i.min/60).toFixed(2) })) };
+      day:i.day, date:iso(i.day), minutes:i.min, hours:+(i.min/60).toFixed(2), done: !!i.done })) };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
   const a = document.createElement("a"); a.href=url; a.download="plan-"+iso(0)+".json";
   document.body.appendChild(a); a.click(); a.remove();
@@ -732,8 +742,9 @@ document.getElementById("file").onchange = ev=>{
                     : b.hours!==undefined ? Math.round(b.hours*60)
                     : b.len!==undefined ? b.len*30 : 30;      // старый формат со слотами
           if(day<0 || day>=DAYS || !min) return;
+          const done = !!b.done;
           const ex = next.find(i=>i.task===t.id && i.day===day);
-          if(ex) ex.min += min; else next.push({task:t.id, day, min});
+          if(ex){ ex.min += min; ex.done = ex.done || done; } else next.push({task:t.id, day, min, done});
         });
         items = next; commitLocal();
         flash("import", (rolesLoaded ? "Роли и план загружены: " : "Загружено: ")+next.length, "Импорт JSON");
