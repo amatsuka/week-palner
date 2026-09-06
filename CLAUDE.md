@@ -10,9 +10,12 @@ Supabase. Полная спецификация: [docs/spec.md](docs/spec.md). �
   без npm, без фреймворков. `supabase-js` подключается как ES-модуль прямо
   с CDN (`https://esm.sh/@supabase/supabase-js@2`) через `<script type="module">`.
 - **В репозитории нет никаких данных** — ни ролей, ни задач, ни плана. При
-  первом открытии палитра пуста. Роли/задачи/план грузятся одним JSON-файлом
-  через кнопку «Импорт JSON» (формат — см. README.md) и сохраняются в
-  `localStorage` браузера (`week-planner-roles` — роли, `plan-<WEEK>` — план).
+  первом открытии палитра пуста. Роли/задачи заводятся кнопками «+ Добавить
+  роль» / «+ задача» в палитре (`buildAddRoleEl`/`buildAddTaskEl`,
+  `addRole`/`addTask` в index.html) либо одним JSON-файлом через «Импорт
+  JSON» (формат — см. README.md); хранятся в `localStorage` браузера
+  (`week-planner-roles` — роли, `plan-<WEEK>` — план). В UI пока только
+  добавление — без переименования/удаления ролей и задач.
 - `supabase/schema.sql` — таблицы `plans` (план) и `role_configs` (роли и
   задачи, одна строка на пользователя), RLS-политики, общий триггер
   `updated_at`. Прогоняется вручную в SQL Editor Supabase, миграций нет. При

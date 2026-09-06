@@ -89,6 +89,16 @@
   .chip.hl{background:color-mix(in srgb,var(--c) 22%,#fff)}
   body.hling .chip:not(.hl),body.hling .card:not(.hl){opacity:.4}
   .tip{color:var(--ink-soft);font-size:12.5px;margin:10px 2px 0}
+
+  .add-btn{display:block;width:100%;text-align:center;font-size:12px;color:var(--ink-soft);
+    background:none;border:1px dashed var(--line);border-radius:6px;padding:5px 8px;cursor:pointer;margin-top:4px}
+  .add-btn:hover{color:var(--ink);border-color:var(--ink-soft)}
+  .add-form{display:flex;gap:4px;margin-top:4px}
+  .add-form input[type=text]{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:5px 7px;
+    border:1px solid var(--line);border-radius:6px}
+  .add-form input[type=color]{flex:none;width:28px;height:28px;padding:2px;border:1px solid var(--line);
+    border-radius:6px;background:none}
+  .add-form button{padding:5px 9px;font-size:12.5px;flex:none}
 </style>
 
 <div class="wrap">
@@ -188,15 +198,62 @@ function applyRemoteRoles(remoteRoles, remoteUpdatedAt){
   setRoles(remoteRoles); rolesUpdatedAt = remoteUpdatedAt;
   persistRolesLocal(); buildPalette(); render();
 }
-function showEmptyState(){
-  pal.innerHTML = `<div style="padding:14px;color:var(--ink-soft);font-size:12.5px;line-height:1.6">
-    Нет ролей и задач. Нажмите «Импорт JSON» и загрузите файл с полем <code>roles</code>
-    (и, опционально, <code>blocks</code> — сразу с планом).</div>`;
+const AUTO_COLORS = ["#2F6FD0","#0E9C9C","#D9701A","#7A57CE","#BE3B76","#3F8F3C","#4A6A88","#8A6D3B"];
+const nextAutoColor = () => AUTO_COLORS[ROLES.length % AUTO_COLORS.length];
+const genId = prefix => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2,7)}`;
+
+function addRole(name, color){
+  name = (name||"").trim(); if(!name) return;
+  ROLES.push({ id: genId("role"), name, color: color || nextAutoColor(), tasks: [] });
+  addRoleOpen = false;
+  setRoles(ROLES); commitRolesLocal();
+  buildPalette(); render();
+}
+function addTask(ri, name){
+  name = (name||"").trim(); const role = ROLES[ri]; if(!name || !role) return;
+  role.tasks.push({ id: genId("task"), name });
+  addTaskOpenFor = null;
+  setRoles(ROLES); commitRolesLocal();
+  buildPalette(); render();
+}
+
+let addRoleOpen = false, addTaskOpenFor = null;
+
+function buildAddTaskEl(ri, color){
+  const wrap = document.createElement("div");
+  if(addTaskOpenFor === ri){
+    wrap.className = "add-form";
+    wrap.innerHTML = `<input type="text" placeholder="Новая задача" data-add-task-input="${ri}">
+      <button data-add-task-save="${ri}">+</button>
+      <button data-add-task-cancel="${ri}">×</button>`;
+  }else{
+    wrap.innerHTML = `<button class="add-btn" data-add-task-open="${ri}">+ задача</button>`;
+  }
+  return wrap;
+}
+
+function buildAddRoleEl(){
+  const wrap = document.createElement("div"); wrap.className="role";
+  if(addRoleOpen){
+    wrap.innerHTML = `<div class="add-form">
+      <input type="color" id="newRoleColor" value="${nextAutoColor()}">
+      <input type="text" id="newRoleName" placeholder="Название роли">
+      <button id="saveRoleBtn">+ роль</button>
+      <button id="cancelRoleBtn">×</button></div>`;
+  }else{
+    wrap.innerHTML = `<button class="add-btn" id="openAddRole">+ Добавить роль</button>`;
+  }
+  return wrap;
 }
 
 function buildPalette(){
-  if(!ROLES.length){ showEmptyState(); return; }
   pal.innerHTML = "";
+  if(!ROLES.length){
+    const empty = document.createElement("p");
+    empty.style.cssText = "padding:2px 2px 10px;color:var(--ink-soft);font-size:12.5px;line-height:1.6";
+    empty.innerHTML = "Нет ролей и задач. Добавьте роль ниже или нажмите «Импорт JSON».";
+    pal.appendChild(empty);
+  }
   ROLES.forEach((r,ri)=>{
     const box = document.createElement("div"); box.className="role";
     box.innerHTML = `<div class="role-h"><span class="dot" style="background:${r.color}"></span>
@@ -207,9 +264,44 @@ function buildPalette(){
       c.innerHTML = `<span class="nm">${escapeHtml(name)}</span><span class="stat" data-stat="${tid}"></span>`;
       box.appendChild(c);
     });
+    box.appendChild(buildAddTaskEl(ri, r.color));
     pal.appendChild(box);
   });
+  pal.appendChild(buildAddRoleEl());
 }
+
+pal.addEventListener("click", e=>{
+  if(e.target.closest("#openAddRole")){
+    addRoleOpen = true; buildPalette();
+    document.getElementById("newRoleName")?.focus();
+    return;
+  }
+  if(e.target.closest("#cancelRoleBtn")){ addRoleOpen = false; buildPalette(); return; }
+  if(e.target.closest("#saveRoleBtn")){
+    addRole(document.getElementById("newRoleName")?.value, document.getElementById("newRoleColor")?.value);
+    return;
+  }
+  const openTask = e.target.closest("[data-add-task-open]");
+  if(openTask){
+    addTaskOpenFor = +openTask.dataset.addTaskOpen; buildPalette();
+    pal.querySelector(`[data-add-task-input="${addTaskOpenFor}"]`)?.focus();
+    return;
+  }
+  const cancelTask = e.target.closest("[data-add-task-cancel]");
+  if(cancelTask){ addTaskOpenFor = null; buildPalette(); return; }
+  const saveTask = e.target.closest("[data-add-task-save]");
+  if(saveTask){
+    const ri = +saveTask.dataset.addTaskSave;
+    addTask(ri, pal.querySelector(`[data-add-task-input="${ri}"]`)?.value);
+    return;
+  }
+});
+pal.addEventListener("keydown", e=>{
+  if(e.key!=="Enter") return;
+  if(e.target.id==="newRoleName") document.getElementById("saveRoleBtn")?.click();
+  const ti = e.target.closest("[data-add-task-input]");
+  if(ti) pal.querySelector(`[data-add-task-save="${ti.dataset.addTaskInput}"]`)?.click();
+});
 
 function buildWeek(){
   week.innerHTML = "";
