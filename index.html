@@ -158,21 +158,35 @@ const pal = document.getElementById("pal");
 const week = document.getElementById("week");
 
 const ROLES_KEY = "week-planner-roles";
+let rolesUpdatedAt = null;  // ISO-время последнего локального изменения ролей / последней синхронизации
 
 function setRoles(roles){
   ROLES = Array.isArray(roles) ? roles : [];
   TASKS = [];
   ROLES.forEach((r,ri)=>(r.tasks||[]).forEach(t=>TASKS.push({id:t.id, name:t.name, role:ri, c:r.color})));
 }
-function persistRolesConfig(){
-  try{ localStorage.setItem(ROLES_KEY, JSON.stringify(ROLES)); }catch(e){}
+function persistRolesLocal(){
+  try{ localStorage.setItem(ROLES_KEY, JSON.stringify({ roles: ROLES, updatedAt: rolesUpdatedAt })); }catch(e){}
 }
 function loadRolesConfig(){
   try{
     const raw = localStorage.getItem(ROLES_KEY);
-    if(raw){ setRoles(JSON.parse(raw)); return ROLES.length>0; }
+    if(raw){
+      const obj = JSON.parse(raw);
+      setRoles(obj.roles);
+      rolesUpdatedAt = obj.updatedAt || null;
+      return ROLES.length>0;
+    }
   }catch(e){}
   return false;
+}
+function commitRolesLocal(){
+  rolesUpdatedAt = new Date().toISOString();
+  persistRolesLocal(); scheduleRolesSync();
+}
+function applyRemoteRoles(remoteRoles, remoteUpdatedAt){
+  setRoles(remoteRoles); rolesUpdatedAt = remoteUpdatedAt;
+  persistRolesLocal(); buildPalette(); render();
 }
 function showEmptyState(){
   pal.innerHTML = `<div style="padding:14px;color:var(--ink-soft);font-size:12.5px;line-height:1.6">
@@ -335,6 +349,56 @@ async function reconcile(){
       }
     } else if(items.length){
       await pushRemote(); return;
+    }
+    setStatus("synced");
+  }catch(e){
+    setStatus(navigator.onLine ? "error" : "offline");
+  }
+}
+
+let rolesPushTimer = null;
+function scheduleRolesSync(){
+  if(!SUPA_CONFIGURED || !session) return;
+  setStatus("saving");
+  clearTimeout(rolesPushTimer);
+  rolesPushTimer = setTimeout(pushRolesRemote, 800);
+}
+
+async function pushRolesRemote(){
+  if(!SUPA_CONFIGURED || !session) return;
+  setStatus("saving");
+  try{
+    const { data, error } = await supabase.from("role_configs")
+      .upsert({ user_id: session.user.id, roles: ROLES }, { onConflict: "user_id" })
+      .select("updated_at").single();
+    if(error) throw error;
+    rolesUpdatedAt = data.updated_at;
+    persistRolesLocal();
+    setStatus("synced");
+  }catch(e){
+    setStatus(navigator.onLine ? "error" : "offline");
+  }
+}
+
+async function reconcileRoles(){
+  if(!SUPA_CONFIGURED || !session) return;
+  setStatus("saving");
+  try{
+    const { data, error } = await supabase.from("role_configs")
+      .select("roles,updated_at").maybeSingle();
+    if(error) throw error;
+    if(data){
+      const remoteTime = new Date(data.updated_at).getTime();
+      const localTime = rolesUpdatedAt ? new Date(rolesUpdatedAt).getTime() : 0;
+      if(remoteTime > localTime){
+        const changed = JSON.stringify(data.roles||[]) !== JSON.stringify(ROLES);
+        applyRemoteRoles(data.roles, data.updated_at);
+        if(changed) toast("Роли и задачи обновлены с другого устройства");
+      } else if(localTime > remoteTime){
+        await pushRolesRemote(); return;
+      }
+    } else if(ROLES.length){
+      await pushRolesRemote(); return;
     }
     setStatus("synced");
   }catch(e){
@@ -563,7 +627,7 @@ document.getElementById("file").onchange = ev=>{
       const data = JSON.parse(r.result);
       let rolesLoaded = false;
       if(!Array.isArray(data) && Array.isArray(data.roles) && data.roles.length){
-        setRoles(data.roles); persistRolesConfig(); buildPalette(); rolesLoaded = true;
+        setRoles(data.roles); commitRolesLocal(); buildPalette(); rolesLoaded = true;
       }
       const src = Array.isArray(data) ? data : data.blocks;
       if(Array.isArray(src)){
@@ -610,19 +674,19 @@ async function init(){
     try{
       const { data:{ session: s } } = await supabase.auth.getSession();
       session = s; updateAuthUI();
-      if(session) await reconcile();
+      if(session){ await reconcileRoles(); await reconcile(); }
     }catch(e){ setStatus(navigator.onLine ? "error" : "offline"); }
 
     supabase.auth.onAuthStateChange((_event, s2)=>{
       const had = !!session;
       session = s2; updateAuthUI();
-      if(session && !had) reconcile();
+      if(session && !had){ reconcileRoles(); reconcile(); }
     });
 
     document.addEventListener("visibilitychange", ()=>{
-      if(document.visibilityState==="visible" && session) reconcile();
+      if(document.visibilityState==="visible" && session){ reconcileRoles(); reconcile(); }
     });
-    window.addEventListener("online", ()=>{ if(session) reconcile(); });
+    window.addEventListener("online", ()=>{ if(session){ reconcileRoles(); reconcile(); } });
     window.addEventListener("offline", ()=>{ if(session) setStatus("offline"); });
   }
 }
