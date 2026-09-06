@@ -124,7 +124,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
    ========================================================================= */
 const CONFIG = {
   SUPABASE_URL: "https://YOUR-PROJECT-REF.supabase.co",
-  SUPABASE_ANON_KEY: "YOUR-ANON-PUBLIC-KEY",
+  SUPABASE_PUBLISHABLE_KEY: "YOUR-PUBLISHABLE-KEY", // Project Settings → API Keys → Publishable key (sb_publishable_...)
   REDIRECT_TO: "https://amatsuka.github.io/week-palner/",
   WEEK: "2026-W37",
   START: "2026-09-07",
@@ -132,9 +132,9 @@ const CONFIG = {
 /* ========================================================================= */
 
 const SUPA_CONFIGURED = !CONFIG.SUPABASE_URL.includes("YOUR-PROJECT")
-  && !CONFIG.SUPABASE_ANON_KEY.includes("YOUR-ANON");
+  && !CONFIG.SUPABASE_PUBLISHABLE_KEY.includes("YOUR-PUBLISHABLE");
 const supabase = SUPA_CONFIGURED
-  ? createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY)
+  ? createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_PUBLISHABLE_KEY)
   : null;
 
 const DAYS = 7, STEP = 30;             // шаг объёма — 30 минут

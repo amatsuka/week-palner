@@ -65,9 +65,13 @@
    `role_configs` (роли/задачи, одна строка на пользователя), в обеих — RLS-
    политики и триггер `updated_at`.
 
-3. **Взять URL и anon-ключ.** Project Settings → API:
+3. **Взять URL и публичный ключ.** Project Settings → API:
    - `Project URL` → это `SUPABASE_URL`;
-   - `anon public` ключ (не `service_role`!) → это `SUPABASE_ANON_KEY`.
+   - **Publishable key** (новое имя вместо старого `anon public`; начинается
+     с `sb_publishable_...`) → это `SUPABASE_PUBLISHABLE_KEY`. Если проект
+     старый и панель ещё показывает только `anon public` — берите его, это
+     тот же по смыслу ключ. Главное — **не** `Secret key` (новое имя для
+     `service_role`).
 
 4. **Настроить redirect URL для magic link.** Authentication → URL
    Configuration → Redirect URLs — добавить точный адрес страницы на GitHub
@@ -81,16 +85,16 @@
    ```js
    const CONFIG = {
      SUPABASE_URL: "https://YOUR-PROJECT-REF.supabase.co",
-     SUPABASE_ANON_KEY: "YOUR-ANON-PUBLIC-KEY",
+     SUPABASE_PUBLISHABLE_KEY: "YOUR-PUBLISHABLE-KEY",
      REDIRECT_TO: "https://amatsuka.github.io/week-palner/",
      WEEK: "2026-W37",
      START: "2026-09-07",
    };
    ```
 
-   Заменить `SUPABASE_URL` и `SUPABASE_ANON_KEY` на значения из шага 3,
+   Заменить `SUPABASE_URL` и `SUPABASE_PUBLISHABLE_KEY` на значения из шага 3,
    `REDIRECT_TO` — на тот же адрес, что в шаге 4. Пока страница не
-   отредактирована (плейсхолдеры `YOUR-PROJECT`/`YOUR-ANON` в конфиге),
+   отредактирована (плейсхолдеры `YOUR-PROJECT`/`YOUR-PUBLISHABLE` в конфиге),
    приложение работает в чисто локальном режиме, а индикатор в шапке
    показывает «Supabase не настроен».
 
@@ -98,9 +102,10 @@
    ввести email, перейти по ссылке из письма — появится email и кнопка
    «Выйти», индикатор покажет «Синхронизировано».
 
-Ключ `anon` — публичный по дизайну, его можно коммитить в репозиторий:
-доступ к данным ограничивает RLS, а не секретность ключа. **Никогда не
-используйте `service_role` ключ на клиенте.**
+Publishable key (как и старый `anon public`) — публичный по дизайну, его
+можно коммитить в репозиторий: доступ к данным ограничивает RLS, а не
+секретность ключа. **Никогда не используйте Secret key / `service_role` на
+клиенте.**
 
 ### Смена недели
 
