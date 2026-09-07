@@ -103,6 +103,19 @@
   .add-form input[type=color]{flex:none;width:28px;height:28px;padding:2px;border:1px solid var(--line);
     border-radius:6px;background:none}
   .add-form button{padding:5px 9px;font-size:12.5px;flex:none}
+
+  button:disabled{opacity:.45;cursor:default}
+  button:disabled:hover{border-color:var(--line)}
+  .spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line);
+    border-top-color:var(--ink-soft);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-1px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* кнопки на блоке срабатывают по удержанию — защита от случайных нажатий на телефоне */
+  .chip .b{position:relative;overflow:hidden}
+  .chip .x{overflow:hidden}
+  .chip .b:before,.chip .x:before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:color-mix(in srgb,var(--c) 55%,transparent);transform:scaleX(0);transform-origin:left}
+  .chip .b.hold:before,.chip .x.hold:before{animation:hold-fill var(--hold,350ms) linear forwards}
+  @keyframes hold-fill{to{transform:scaleX(1)}}
 </style>
 
 <div class="wrap">
@@ -114,8 +127,8 @@
     <span class="spacer"></span>
     <span class="sync" id="sync"></span>
     <span class="authbar" id="authbar"></span>
+    <button id="undo" disabled>Отменить</button>
     <button id="copy">Скопировать план</button>
-    <button id="link">Ссылка на план</button>
     <button id="export">Экспорт JSON</button>
     <button id="import">Импорт JSON</button>
     <input type="file" id="file" accept="application/json,.json" hidden>
@@ -126,7 +139,7 @@
     <div class="panel pal" id="pal"></div>
     <div class="week" id="week"></div>
   </div>
-  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кинул ещё раз или нажал «+» — объём растёт. «✓» на блоке отмечает его выполненным (зачёркивается, тускнеет), повторный клик — возвращает в план. Времени начала нет: порядок внутри дня твой. Задачу можно перетащить в другой день, с зажатым ⌘ — скопировать. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кнопки на блоке («✓» выполнено, «−» / «+» объём, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня твой. Задачу можно перетащить в другой день, с зажатым ⌘ — скопировать. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -152,6 +165,9 @@ const supabase = SUPA_CONFIGURED
   : null;
 
 const DAYS = 7, STEP = 30;             // шаг объёма — 30 минут
+const HOLD_MS = 350;                   // сколько держать кнопку на блоке, чтобы она сработала
+const UNDO_LIMIT = 20;
+document.documentElement.style.setProperty("--hold", HOLD_MS+"ms");
 const DNAME = ["пн","вт","ср","чт","пт","сб","вс"];
 const MON = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
 const START = (()=>{ const [y,m,d] = CONFIG.START.split("-").map(Number); return new Date(y,m-1,d); })();
@@ -371,10 +387,6 @@ function persistLocal(){
   try{ localStorage.setItem(STORE_KEY, JSON.stringify({ items, updatedAt: localUpdatedAt })); }catch(e){}
 }
 function loadLocal(){
-  const h = location.hash.replace(/^#p=/,"");
-  if(h && h!==location.hash){
-    try{ items = unpackState(h); localUpdatedAt = new Date().toISOString(); persistLocal(); return; }catch(e){}
-  }
   try{
     const raw = localStorage.getItem(STORE_KEY);
     if(raw){ const obj = JSON.parse(raw); items = Array.isArray(obj.items) ? obj.items : []; localUpdatedAt = obj.updatedAt || null; }
@@ -386,14 +398,35 @@ function commitLocal(){
 }
 function applyRemote(remoteItems, remoteUpdatedAt){
   items = remoteItems || []; localUpdatedAt = remoteUpdatedAt;
+  undoStack = []; updateUndoBtn();   // отменять в состояние до чужой правки нельзя
   persistLocal(); render();
+}
+
+/* ---------- отмена последнего действия ---------- */
+let undoStack = [];
+function pushUndo(){
+  undoStack.push(JSON.stringify(items));
+  if(undoStack.length > UNDO_LIMIT) undoStack.shift();
+  updateUndoBtn();
+}
+function undo(){
+  const prev = undoStack.pop();
+  if(prev === undefined) return;
+  items = JSON.parse(prev);
+  updateUndoBtn();
+  commitLocal();
+}
+function updateUndoBtn(){
+  document.getElementById("undo").disabled = !undoStack.length;
 }
 
 function setStatus(state){
   const el = document.getElementById("sync");
   el.className = "sync" + (state==="error" ? " err" : "");
-  el.textContent = {
-    saving: "Сохраняю…",
+  el.innerHTML = {
+    saving: `<span class="spin"></span> Сохраняю…`,
+    checking: `<span class="spin"></span> Проверяю вход…`,
+    sending: `<span class="spin"></span> Отправляю ссылку…`,
     synced: "Синхронизировано",
     offline: "Офлайн",
     error: "Ошибка синхронизации",
@@ -547,36 +580,81 @@ function bindAuthEvents(){
   };
 }
 
+let authBusy = false;
 async function doMagicLink(){
   const input = document.getElementById("emailInput");
+  const btn = document.getElementById("emailSend");
   const email = input && input.value.trim();
-  if(!email) return;
+  if(!email || authBusy) return;
+  authBusy = true;
+  if(btn){ btn.disabled = true; btn.innerHTML = `<span class="spin"></span>`; }
+  if(input) input.disabled = true;
+  setStatus("sending");
   try{
     const { error } = await supabase.auth.signInWithOtp({ email, options:{ emailRedirectTo: CONFIG.REDIRECT_TO } });
     if(error) throw error;
+    authBusy = false;
     emailFormOpen = false; updateAuthUI(); setStatus("magiclink");
   }catch(e){
+    authBusy = false;                       // форму не перерисовываем — введённый email остаётся на месте
+    if(btn){ btn.disabled = false; btn.textContent = "Отправить ссылку"; }
+    if(input) input.disabled = false;
     setStatus(navigator.onLine ? "error" : "offline");
   }
 }
 
 /* ---------- изменение объёма ---------- */
-function add(task,day,min){
+function addBlock(task,day,min,done){    // чистая мутация, без undo и записи
   const it = find(task,day);
-  if(it) it.min += min; else items.push({task,day,min});
-  commitLocal();
+  if(it) it.min += min; else items.push({task,day,min,done:!!done});
+}
+function add(task,day,min){
+  pushUndo(); addBlock(task,day,min); commitLocal();
 }
 function bump(task,day,dir){
   const it = find(task,day); if(!it) return;
+  pushUndo();
   it.min += dir*STEP;
   if(it.min<=0) items = items.filter(x=>x!==it);
   commitLocal();
 }
 function toggleDone(task,day){
   const it = find(task,day); if(!it) return;
+  pushUndo();
   it.done = !it.done;
   commitLocal();
 }
+function removeBlock(task,day){
+  const t = byId(task);
+  if(!confirm(`Убрать «${t ? t.name : task}» из этого дня?`)) return;
+  pushUndo();
+  items = items.filter(i=>!(i.task===task && i.day===day));
+  commitLocal();
+}
+
+/* ---------- удержание кнопок на блоке ---------- */
+let hold = null;
+function startHold(btn, chip, e){
+  const task = chip.dataset.task, day = +chip.dataset.day;
+  btn.classList.add("hold");
+  hold = { btn, x0:e.clientX, y0:e.clientY, timer: setTimeout(()=>{
+    endHold();
+    if(btn.dataset.del) removeBlock(task,day);
+    else if(btn.dataset.step) bump(task,day,+btn.dataset.step);
+    else toggleDone(task,day);
+  }, HOLD_MS) };
+}
+function endHold(){
+  if(!hold) return;
+  clearTimeout(hold.timer);
+  hold.btn.classList.remove("hold");
+  hold = null;
+}
+document.addEventListener("pointermove", e=>{
+  if(hold && Math.hypot(e.clientX-hold.x0, e.clientY-hold.y0) > 8) endHold();
+});
+document.addEventListener("pointerup", endHold);
+document.addEventListener("pointercancel", endHold);
 
 /* ---------- перетаскивание ---------- */
 let drag=null, ghost=null, selected=null, downPool=null;
@@ -585,11 +663,8 @@ document.addEventListener("pointerdown", e=>{
   if(e.button && e.button!==0) return;
   const chip = e.target.closest(".chip");
   if(chip){
-    const task = chip.dataset.task, day = +chip.dataset.day;
-    if(e.target.closest("[data-del]")){ items = items.filter(i=>!(i.task===task&&i.day===day)); commitLocal(); return; }
-    const st = e.target.closest("[data-step]");
-    if(st){ bump(task,day,+st.dataset.step); return; }
-    if(e.target.closest("[data-toggle-done]")){ toggleDone(task,day); return; }
+    const btn = e.target.closest("[data-del],[data-step],[data-toggle-done]");
+    if(btn){ startHold(btn, chip, e); e.preventDefault(); return; }
   }
   const card = e.target.closest(".card");
   downPool = (!card && !chip) ? e.target.closest(".pool") : null;
@@ -654,14 +729,19 @@ function up(e){
   const pool = poolAt(e.clientX,e.clientY);
   const copy = d.mode==="move" && (e.metaKey||e.altKey||e.ctrlKey||d.copy);
   if(!pool){
-    if(d.mode==="move" && !copy){ items = items.filter(i=>!(i.task===d.task&&i.day===d.from)); commitLocal(); }
+    if(d.mode==="move" && !copy){
+      pushUndo();
+      items = items.filter(i=>!(i.task===d.task&&i.day===d.from));
+      commitLocal();
+    }
     return;
   }
   const day = +pool.dataset.day;
   if(d.mode==="new"){ add(d.task,day,STEP); return; }
   if(day===d.from) return;
   const src = find(d.task,d.from); if(!src) return;
-  add(d.task,day,src.min);
+  pushUndo();                       // перенос — одно действие, одна отмена
+  addBlock(d.task,day,src.min,src.done);
   if(!copy) items = items.filter(i=>i!==src);
   commitLocal();
 }
@@ -672,16 +752,10 @@ week.addEventListener("click", e=>{           // постановка тапом
   if(pool) add(selected, +pool.dataset.day, STEP);
 });
 
-/* ---------- ссылка на план (hash) ---------- */
-const packState = () => btoa(JSON.stringify(items.map(i=>[i.task,i.day,i.min,i.done?1:0])));
-function unpackState(str){
-  return JSON.parse(atob(str)).map(([task,day,min,done])=>({task,day:+day,min:+min,done:!!done}))
-    .filter(i=>byId(i.task) && i.day>=0 && i.day<DAYS && i.min>0);
-}
-
 /* ---------- кнопки ---------- */
+document.getElementById("undo").onclick = undo;
 document.getElementById("clear").onclick = ()=>{
-  if(items.length && confirm("Очистить всю неделю?")){ items=[]; commitLocal(); }
+  if(items.length && confirm("Очистить всю неделю?")){ pushUndo(); items=[]; commitLocal(); }
 };
 document.getElementById("copy").onclick = ()=>{
   const lines = [`Неделя ${CONFIG.WEEK}`,""];
@@ -710,16 +784,6 @@ document.getElementById("export").onclick = ()=>{
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),2000);
 };
-document.getElementById("link").onclick = ()=>{
-  location.hash = "p=" + packState();
-  const url = location.href;
-  const ta=document.createElement("textarea"); ta.value=url;
-  ta.style.position="fixed"; ta.style.left="-9999px";
-  document.body.appendChild(ta); ta.select();
-  try{ document.execCommand("copy"); }catch(e){}
-  navigator.clipboard && navigator.clipboard.writeText(url).catch(()=>{});
-  ta.remove(); flash("link","Ссылка скопирована","Ссылка на план");
-};
 document.getElementById("import").onclick = ()=> document.getElementById("file").click();
 document.getElementById("file").onchange = ev=>{
   const f = ev.target.files[0]; if(!f) return;
@@ -746,7 +810,7 @@ document.getElementById("file").onchange = ev=>{
           const ex = next.find(i=>i.task===t.id && i.day===day);
           if(ex){ ex.min += min; ex.done = ex.done || done; } else next.push({task:t.id, day, min, done});
         });
-        items = next; commitLocal();
+        pushUndo(); items = next; commitLocal();
         flash("import", (rolesLoaded ? "Роли и план загружены: " : "Загружено: ")+next.length, "Импорт JSON");
       } else if(rolesLoaded){
         render();
@@ -770,10 +834,12 @@ async function init(){
 
   loadLocal();
   render();                 // локальное состояние отрисовывается мгновенно, без сети
+  updateUndoBtn();
 
   updateAuthUI();
 
   if(SUPA_CONFIGURED){
+    setStatus("checking");
     try{
       const { data:{ session: s } } = await supabase.auth.getSession();
       session = s; updateAuthUI();
