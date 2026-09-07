@@ -55,10 +55,13 @@
     font-variant-numeric:tabular-nums;white-space:nowrap}
   .card .stat b{color:var(--ink);font-weight:650}
 
-  .week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--line-soft);
+  .week{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:1px;background:var(--line-soft);
     border-radius:10px;overflow:hidden;border:1px solid var(--line)}
   @media (max-width:880px){.week{grid-template-columns:1fr}}
   .day{background:var(--surface);min-height:190px;display:flex;flex-direction:column}
+  .day.backlog{background:color-mix(in srgb,var(--canvas) 45%,#fff)}
+  .day.backlog .dnum{color:var(--ink-soft);font-weight:600}
+  .day.backlog .pool.hot{background:color-mix(in srgb,var(--r1) 10%,#fff)}
   .dhead{padding:7px 8px 5px;border-bottom:1px solid var(--line-soft);display:flex;align-items:baseline;gap:5px}
   .dname{font-size:12px;color:var(--ink-soft)}
   .dnum{font-size:13px;font-weight:600}
@@ -141,7 +144,7 @@
     <div class="panel pal" id="pal"></div>
     <div class="week" id="week"></div>
   </div>
-  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кнопки на блоке («✓» выполнено, «−» / «+» объём, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+  <p class="tip">Первый столбец «Без дня» — для того, что надо сделать на неделе, но день ещё не выбран: клади туда и растаскивай по дням, когда решишь. В недельную загрузку и среднее эти блоки не входят, их объём считается отдельно. Кидай задачу в день — она ложится в пул на 30 минут. Кнопки на блоке («✓» выполнено, «−» / «+» объём, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -167,6 +170,7 @@ const supabase = SUPA_CONFIGURED
   : null;
 
 const DAYS = 7, STEP = 30;             // шаг объёма — 30 минут
+const BACKLOG = -1;                    // «день» для задач без выбранного дня — первый столбец
 const HOLD_MS = 350;                   // сколько держать кнопку на блоке, чтобы она сработала
 const UNDO_LIMIT = 20;
 document.documentElement.style.setProperty("--hold", HOLD_MS+"ms");
@@ -327,6 +331,13 @@ pal.addEventListener("keydown", e=>{
 
 function buildWeek(){
   week.innerHTML = "";
+  const box = document.createElement("div"); box.className="day backlog";
+  box.title = "Сделать на неделе, день пока не выбран";
+  box.innerHTML = `<div class="dhead">
+      <span class="dnum">Без дня</span>
+      <span class="dsum" data-daysum="${BACKLOG}"></span>
+    </div><div class="pool" data-day="${BACKLOG}"></div>`;
+  week.appendChild(box);
   for(let d=0;d<DAYS;d++){
     const dt = dayDate(d);
     const col = document.createElement("div"); col.className="day";
@@ -359,25 +370,30 @@ function render(){
 
 function totals(){
   const perRole = ROLES.map(()=>0), perDay = Array(DAYS).fill(0), cnt = {}, sum = {};
+  let backlog = 0;
   items.forEach(i=>{ const t=byId(i.task); if(!t) return;
-    perRole[t.role]+=i.min; perDay[i.day]+=i.min;
-    cnt[i.task]=(cnt[i.task]||0)+1; sum[i.task]=(sum[i.task]||0)+i.min; });
+    perRole[t.role]+=i.min;
+    if(i.day===BACKLOG) backlog += i.min;
+    else { perDay[i.day]+=i.min; cnt[i.task]=(cnt[i.task]||0)+1; }   // «Nд» считает только реальные дни
+    sum[i.task]=(sum[i.task]||0)+i.min; });
   document.querySelectorAll("[data-stat]").forEach(e=>{
     const id=e.dataset.stat;
-    e.innerHTML = cnt[id] ? `<b>${cnt[id]}д</b> ${fmt(sum[id])}` : "";
+    e.innerHTML = cnt[id] ? `<b>${cnt[id]}д</b> ${fmt(sum[id])}`
+                : sum[id] ? fmt(sum[id]) : "";
   });
   document.querySelectorAll("[data-role]").forEach(e=>{
     const v=perRole[+e.dataset.role]; e.textContent = v ? fmt(v) : "";
   });
   document.querySelectorAll("[data-daysum]").forEach(e=>{
-    const v=perDay[+e.dataset.daysum];
+    const d = +e.dataset.daysum, v = d===BACKLOG ? backlog : perDay[d];
     e.textContent = v ? fmt(v) : "";
-    e.classList.toggle("over", v > 480);
+    e.classList.toggle("over", d!==BACKLOG && v > 480);
   });
   const wk = perDay.reduce((a,b)=>a+b,0), busy = perDay.filter(v=>v>0).length;
   document.getElementById("load").innerHTML =
     `За неделю: <b>${fmt(wk)}</b> &nbsp;·&nbsp; загруженных дней: <b>${busy} из 7</b>` +
-    (busy ? ` &nbsp;·&nbsp; в среднем: <b>${fmt(Math.round(wk/busy/30)*30)}</b>` : "");
+    (busy ? ` &nbsp;·&nbsp; в среднем: <b>${fmt(Math.round(wk/busy/30)*30)}</b>` : "") +
+    (backlog ? ` &nbsp;·&nbsp; без дня: <b>${fmt(backlog)}</b>` : "");
 }
 
 /* ---------- локальное хранилище + синхронизация ---------- */
@@ -804,10 +820,14 @@ document.getElementById("clear").onclick = ()=>{
 };
 document.getElementById("copy").onclick = ()=>{
   const lines = [`Неделя ${CONFIG.WEEK}`,""];
-  for(let d=0; d<DAYS; d++){
+  for(let d=BACKLOG; d<DAYS; d++){
     const day = items.filter(i=>i.day===d); if(!day.length) continue;
-    const dt = dayDate(d), tot = day.reduce((a,b)=>a+b.min,0);
-    lines.push(`${DNAME[(dt.getDay()+6)%7]} ${dt.getDate()} ${MON[dt.getMonth()]} — ${fmt(tot)}`);
+    const tot = day.reduce((a,b)=>a+b.min,0);
+    if(d===BACKLOG) lines.push(`Без дня — ${fmt(tot)}`);
+    else {
+      const dt = dayDate(d);
+      lines.push(`${DNAME[(dt.getDay()+6)%7]} ${dt.getDate()} ${MON[dt.getMonth()]} — ${fmt(tot)}`);
+    }
     day.forEach(i=>lines.push(`  ${i.done?"✓":"•"} ${byId(i.task).name} — ${fmt(i.min)}`));
     lines.push("");
   }
@@ -823,7 +843,8 @@ document.getElementById("export").onclick = ()=>{
   const data = { version:2, start:iso(0), days:DAYS, week:CONFIG.WEEK, mode:"pool",
     roles: ROLES,
     blocks: items.map(i=>({ task:i.task, name:byId(i.task).name, role:ROLES[byId(i.task).role].name,
-      day:i.day, date:iso(i.day), minutes:i.min, hours:+(i.min/60).toFixed(2), done: !!i.done })) };
+      day:i.day, date: i.day===BACKLOG ? null : iso(i.day),      // day -1 = «без дня»
+      minutes:i.min, hours:+(i.min/60).toFixed(2), done: !!i.done })) };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
   const a = document.createElement("a"); a.href=url; a.download="plan-"+iso(0)+".json";
   document.body.appendChild(a); a.click(); a.remove();
@@ -850,7 +871,7 @@ document.getElementById("file").onchange = ev=>{
           const min = b.minutes!==undefined ? +b.minutes
                     : b.hours!==undefined ? Math.round(b.hours*60)
                     : b.len!==undefined ? b.len*30 : 30;      // старый формат со слотами
-          if(day<0 || day>=DAYS || !min) return;
+          if((day!==BACKLOG && (day<0 || day>=DAYS)) || !min) return;
           const done = !!b.done;
           const ex = next.find(i=>i.task===t.id && i.day===day);
           if(ex){ ex.min += min; ex.done = ex.done || done; } else next.push({task:t.id, day, min, done});
