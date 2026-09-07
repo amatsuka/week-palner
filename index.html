@@ -84,6 +84,8 @@
   .chip.done .done-toggle{color:var(--ink)}
   body.dragging{cursor:grabbing}
   body.dragging .chip{pointer-events:none}
+  .chip.drag-src{opacity:.35}
+  .drop-line{height:3px;border-radius:2px;flex:none;pointer-events:none;margin:-1px 0}
   .ghost{position:fixed;z-index:99;pointer-events:none;border-radius:6px;padding:3px 7px;font-size:12px;
     background:var(--surface);border:1px solid var(--c);border-left:4px solid var(--c);
     box-shadow:0 6px 16px rgba(22,33,43,.22)}
@@ -139,7 +141,7 @@
     <div class="panel pal" id="pal"></div>
     <div class="week" id="week"></div>
   </div>
-  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кнопки на блоке («✓» выполнено, «−» / «+» объём, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня твой. Задачу можно перетащить в другой день, с зажатым ⌘ — скопировать. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+  <p class="tip">Кидай задачу в день — она ложится в пул на 30 минут. Кнопки на блоке («✓» выполнено, «−» / «+» объём, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -604,12 +606,22 @@ async function doMagicLink(){
 }
 
 /* ---------- изменение объёма ---------- */
-function addBlock(task,day,min,done){    // чистая мутация, без undo и записи
-  const it = find(task,day);
-  if(it) it.min += min; else items.push({task,day,min,done:!!done});
+// порядок блоков внутри дня = их порядок в items, поэтому вставка по позиции
+// сводится к поиску нужного индекса в общем массиве
+function flatIndexFor(arr,day,pos){
+  const idx = [];
+  arr.forEach((it,i)=>{ if(it.day===day) idx.push(i); });
+  if(!idx.length) return arr.length;
+  return pos>=idx.length ? idx[idx.length-1]+1 : idx[pos];
 }
-function add(task,day,min){
-  pushUndo(); addBlock(task,day,min); commitLocal();
+function addBlock(task,day,min,done,pos){    // чистая мутация, без undo и записи
+  const it = find(task,day);
+  if(it){ it.min += min; return; }           // та же задача в этом дне — сливаем объём
+  const block = {task,day,min,done:!!done};
+  items.splice(pos===undefined ? items.length : flatIndexFor(items,day,pos), 0, block);
+}
+function add(task,day,min,pos){
+  pushUndo(); addBlock(task,day,min,false,pos); commitLocal();
 }
 function bump(task,day,dir){
   const it = find(task,day); if(!it) return;
@@ -657,7 +669,24 @@ document.addEventListener("pointerup", endHold);
 document.addEventListener("pointercancel", endHold);
 
 /* ---------- перетаскивание ---------- */
-let drag=null, ghost=null, selected=null, downPool=null;
+let drag=null, ghost=null, selected=null, downPool=null, dropLine=null;
+
+// позиция среди блоков дня, куда попадёт перетаскиваемый блок (сам он не в счёт)
+function dropPos(pool, y, dragged){
+  const chips = [...pool.querySelectorAll(".chip")].filter(c=>c!==dragged);
+  for(let i=0;i<chips.length;i++){
+    const r = chips[i].getBoundingClientRect();
+    if(y < r.top + r.height/2) return i;
+  }
+  return chips.length;
+}
+function showDropLine(pool, pos, dragged, color){
+  if(!dropLine){ dropLine = document.createElement("div"); dropLine.className = "drop-line"; }
+  dropLine.style.background = color;
+  const chips = [...pool.children].filter(c=>c!==dragged && c!==dropLine);
+  if(pos>=chips.length) pool.appendChild(dropLine); else pool.insertBefore(dropLine, chips[pos]);
+}
+function hideDropLine(){ dropLine?.remove(); }
 
 document.addEventListener("pointerdown", e=>{
   if(e.button && e.button!==0) return;
@@ -682,6 +711,7 @@ document.addEventListener("pointermove", e=>{
   if(!drag.moved){
     drag.moved = true; document.body.classList.add("dragging"); setHl(null);
     const t = byId(drag.task);
+    if(drag.mode==="move") drag.el.classList.add("drag-src");
     ghost = document.createElement("div");
     ghost.className="ghost"; ghost.style.setProperty("--c",t.c); ghost.textContent=t.name;
     document.body.appendChild(ghost);
@@ -690,7 +720,11 @@ document.addEventListener("pointermove", e=>{
   drag.copy = e.metaKey||e.altKey||e.ctrlKey;
   ghost.classList.toggle("copy", drag.mode==="move" && drag.copy);
   document.querySelectorAll(".pool.hot").forEach(p=>p.classList.remove("hot"));
-  const p = poolAt(e.clientX,e.clientY); if(p) p.classList.add("hot");
+  const p = poolAt(e.clientX,e.clientY);
+  if(p){
+    p.classList.add("hot");
+    showDropLine(p, dropPos(p, e.clientY, drag.el), drag.el, byId(drag.task).c);
+  } else hideDropLine();
 });
 
 let hl = null;
@@ -716,7 +750,9 @@ function up(e){
   if(!drag) return;
   const d = drag; drag = null;
   document.body.classList.remove("dragging");
+  d.el.classList.remove("drag-src");
   if(ghost){ ghost.remove(); ghost=null; }
+  hideDropLine();
 
   if(!d.moved){
     if(d.mode==="new"){
@@ -729,27 +765,36 @@ function up(e){
   const pool = poolAt(e.clientX,e.clientY);
   const copy = d.mode==="move" && (e.metaKey||e.altKey||e.ctrlKey||d.copy);
   if(!pool){
-    if(d.mode==="move" && !copy){
-      pushUndo();
-      items = items.filter(i=>!(i.task===d.task&&i.day===d.from));
-      commitLocal();
-    }
+    if(d.mode==="move" && !copy) removeBlock(d.task, d.from);   // промах мимо дня переспросит
     return;
   }
   const day = +pool.dataset.day;
-  if(d.mode==="new"){ add(d.task,day,STEP); return; }
-  if(day===d.from) return;
+  const pos = dropPos(pool, e.clientY, d.el);
+  if(d.mode==="new"){ add(d.task,day,STEP,pos); return; }
   const src = find(d.task,d.from); if(!src) return;
+
+  if(day===d.from){                 // перестановка внутри дня
+    if(copy) return;
+    const from = items.indexOf(src); if(from<0) return;
+    const rest = items.slice(); rest.splice(from,1);
+    const to = flatIndexFor(rest,day,pos);
+    if(to===from) return;           // блок остался на месте
+    pushUndo();
+    rest.splice(to,0,src); items = rest;
+    commitLocal();
+    return;
+  }
+
   pushUndo();                       // перенос — одно действие, одна отмена
-  addBlock(d.task,day,src.min,src.done);
   if(!copy) items = items.filter(i=>i!==src);
+  addBlock(d.task,day,src.min,src.done,pos);
   commitLocal();
 }
 
 week.addEventListener("click", e=>{           // постановка тапом
   if(!selected || !downPool) return;
   const pool = e.target.closest(".pool"); downPool=null;
-  if(pool) add(selected, +pool.dataset.day, STEP);
+  if(pool) add(selected, +pool.dataset.day, STEP, dropPos(pool, e.clientY, null));
 });
 
 /* ---------- кнопки ---------- */
