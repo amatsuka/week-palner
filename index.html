@@ -69,12 +69,19 @@
   .dsum.over{color:var(--warn);font-weight:650}
   .pool{flex:1;padding:6px;display:flex;flex-direction:column;gap:4px}
   .pool.hot{background:color-mix(in srgb,var(--r1) 7%,#fff)}
-  .chip{position:relative;border:1px solid color-mix(in srgb,var(--c) 45%,#fff);border-left:3px solid var(--c);
-    background:color-mix(in srgb,var(--c) 11%,#fff);border-radius:6px;padding:4px 6px 4px 7px;
+  /* фон блока заполняется по прогрессу: --p = отработано/запланировано */
+  .chip{--base:color-mix(in srgb,var(--c) 11%,#fff); --fill:color-mix(in srgb,var(--c) 30%,#fff);
+    position:relative;border:1px solid color-mix(in srgb,var(--c) 45%,#fff);border-left:3px solid var(--c);
+    background:linear-gradient(to right,var(--fill) var(--p,0%),var(--base) var(--p,0%));
+    border-radius:6px;padding:4px 6px 4px 7px;
     font-size:12px;line-height:1.25;cursor:grab;touch-action:none;user-select:none}
   .chip .nm{padding-right:14px}
   .chip .row{display:flex;align-items:center;gap:4px;margin-top:3px}
-  .chip .h{font-size:11.5px;color:var(--ink-soft);font-variant-numeric:tabular-nums;margin-left:auto}
+  .chip .h{position:relative;overflow:hidden;font-size:11.5px;color:var(--ink-soft);
+    font-variant-numeric:tabular-nums;margin-left:auto;cursor:pointer;padding:0 2px;border-radius:4px}
+  .chip .h:hover{color:var(--ink);background:color-mix(in srgb,var(--c) 18%,#fff)}
+  .chip .h-edit{width:52px;margin-left:auto;font:inherit;font-size:11.5px;padding:1px 4px;
+    border:1px solid var(--c);border-radius:4px;background:#fff;user-select:text;text-align:right}
   .chip .b{width:19px;height:19px;line-height:17px;text-align:center;border-radius:5px;cursor:pointer;
     border:1px solid color-mix(in srgb,var(--c) 40%,#fff);background:#fff;font-size:13px;color:var(--ink-soft)}
   .chip .b:hover{color:var(--ink);border-color:var(--c)}
@@ -95,7 +102,7 @@
   .ghost.copy:after{content:"+";position:absolute;right:-7px;bottom:-7px;width:16px;height:16px;line-height:15px;
     text-align:center;font-size:13px;font-weight:700;color:#fff;background:var(--c);border-radius:50%}
   .card.hl,.chip.hl{border-color:var(--c);box-shadow:0 0 0 2px color-mix(in srgb,var(--c) 45%,transparent)}
-  .chip.hl{background:color-mix(in srgb,var(--c) 22%,#fff)}
+  .chip.hl{--base:color-mix(in srgb,var(--c) 22%,#fff); --fill:color-mix(in srgb,var(--c) 40%,#fff)}
   body.hling .chip:not(.hl),body.hling .card:not(.hl){opacity:.4}
   .tip{color:var(--ink-soft);font-size:12.5px;margin:10px 2px 0}
 
@@ -144,7 +151,7 @@
     <div class="panel pal" id="pal"></div>
     <div class="week" id="week"></div>
   </div>
-  <p class="tip">Первый столбец «Без дня» — для того, что надо сделать на неделе, но день ещё не выбран: клади туда и растаскивай по дням, когда решишь. В недельную загрузку и среднее эти блоки не входят, их объём считается отдельно. Кидай задачу в день — она ложится в пул на 30 минут. Кнопки на блоке («✓» выполнено, «−» / «+» объём, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+  <p class="tip">Первый столбец «Без дня» — для того, что надо сделать на неделе, но день ещё не выбран: клади туда и растаскивай по дням, когда решишь. В недельную загрузку и среднее эти блоки не входят, их объём считается отдельно. Кидай задачу в день — она ложится в пул на 30 минут. На блоке написано <b>отработано / запланировано</b>: «−» и «+» отмечают отработанные получасовые отрезки, а фон заливается по мере выполнения. Запланированное время задаётся числом в часах — удержи время на блоке, впиши, например, 1.5, и нажми Enter. Кнопки на блоке («✓» выполнено, «−» / «+» отрезки, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -181,6 +188,8 @@ const dayDate = d => new Date(START.getFullYear(),START.getMonth(),START.getDate
 const iso = d => { const t=dayDate(d);
   return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0"); };
 const fmt = m => m>=60 ? (+(m/60).toFixed(2))+" ч" : m+" мин";
+const hrs = m => +((m||0)/60).toFixed(2);
+const prog = i => `${hrs(i.did)}/${hrs(i.min)} ч`;      // отработано из запланированного
 const escapeHtml = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 let ROLES = [], TASKS = [];
@@ -357,10 +366,11 @@ function render(){
     const pool = week.querySelector(`.pool[data-day="${i.day}"]`); if(!pool) return;
     const el = document.createElement("div");
     el.className="chip" + (i.done ? " done" : ""); el.style.setProperty("--c",t.c);
+    el.style.setProperty("--p", Math.min(100, Math.round((i.did||0)/i.min*100)) + "%");
     el.dataset.task=i.task; el.dataset.day=i.day;
     el.innerHTML = `<div class="nm">${escapeHtml(t.name)}</div>
       <div class="row"><span class="b done-toggle" data-toggle-done="1" title="${i.done?"Вернуть в план":"Отметить выполненным"}">${i.done?"↺":"✓"}</span><span class="b" data-step="-1">−</span><span class="b" data-step="1">+</span>
-      <span class="h">${fmt(i.min)}</span></div>
+      <span class="h" data-edit-min="1" title="Отработано из запланированного — удержи, чтобы задать план">${prog(i)}</span></div>
       <span class="x" data-del="1">×</span>`;
     pool.appendChild(el);
   });
@@ -630,20 +640,34 @@ function flatIndexFor(arr,day,pos){
   if(!idx.length) return arr.length;
   return pos>=idx.length ? idx[idx.length-1]+1 : idx[pos];
 }
-function addBlock(task,day,min,done,pos){    // чистая мутация, без undo и записи
+function addBlock(task,day,min,pos,extra){   // чистая мутация, без undo и записи
   const it = find(task,day);
-  if(it){ it.min += min; return; }           // та же задача в этом дне — сливаем объём
-  const block = {task,day,min,done:!!done};
+  if(it){                                    // та же задача в этом дне — сливаем объём
+    it.min += min;
+    if(extra?.did) it.did = (it.did||0) + extra.did;
+    return;
+  }
+  const block = {task,day,min,did:extra?.did||0,done:!!extra?.done};
   items.splice(pos===undefined ? items.length : flatIndexFor(items,day,pos), 0, block);
 }
 function add(task,day,min,pos){
-  pushUndo(); addBlock(task,day,min,false,pos); commitLocal();
+  pushUndo(); addBlock(task,day,min,pos); commitLocal();
 }
-function bump(task,day,dir){
+function bumpDid(task,day,dir){              // «+»/«−» отмечают отработанные отрезки
   const it = find(task,day); if(!it) return;
+  const next = Math.max(0, (it.did||0) + dir*STEP);
+  if(next === (it.did||0)) return;           // на нуле «−» ничего не делает
   pushUndo();
-  it.min += dir*STEP;
-  if(it.min<=0) items = items.filter(x=>x!==it);
+  it.did = next;
+  commitLocal();
+}
+function setPlanned(task,day,hours){         // запланированное время вводится числом
+  const it = find(task,day); if(!it) return;
+  if(!isFinite(hours)) return;
+  const min = Math.max(STEP, Math.round(hours*60/STEP)*STEP);   // кратно 30 минутам
+  if(min === it.min) return;
+  pushUndo();
+  it.min = min;
   commitLocal();
 }
 function toggleDone(task,day){
@@ -660,6 +684,28 @@ function removeBlock(task,day){
   commitLocal();
 }
 
+/* ---------- ввод запланированного времени ---------- */
+function openMinEditor(chip, task, day){
+  const it = find(task,day); if(!it) return;
+  const h = chip.querySelector(".h"); if(!h) return;
+  const input = document.createElement("input");
+  input.className = "h-edit"; input.type = "text"; input.inputMode = "decimal";
+  input.value = hrs(it.min); input.title = "Запланировано, часов";
+  h.replaceWith(input);
+  input.focus(); input.select();
+  const close = save => {
+    if(!input.isConnected) return;
+    const v = parseFloat(input.value.replace(",", "."));
+    input.replaceWith(h);
+    if(save) setPlanned(task, day, v);
+  };
+  input.addEventListener("keydown", e=>{
+    if(e.key==="Enter") close(true);
+    else if(e.key==="Escape") close(false);
+  });
+  input.addEventListener("blur", ()=>close(true));
+}
+
 /* ---------- удержание кнопок на блоке ---------- */
 let hold = null;
 function startHold(btn, chip, e){
@@ -668,7 +714,8 @@ function startHold(btn, chip, e){
   hold = { btn, x0:e.clientX, y0:e.clientY, timer: setTimeout(()=>{
     endHold();
     if(btn.dataset.del) removeBlock(task,day);
-    else if(btn.dataset.step) bump(task,day,+btn.dataset.step);
+    else if(btn.dataset.step) bumpDid(task,day,+btn.dataset.step);
+    else if(btn.dataset.editMin) openMinEditor(chip,task,day);
     else toggleDone(task,day);
   }, HOLD_MS) };
 }
@@ -706,9 +753,10 @@ function hideDropLine(){ dropLine?.remove(); }
 
 document.addEventListener("pointerdown", e=>{
   if(e.button && e.button!==0) return;
+  if(e.target.closest(".h-edit")) return;          // ввод плана — не начинаем перетаскивание
   const chip = e.target.closest(".chip");
   if(chip){
-    const btn = e.target.closest("[data-del],[data-step],[data-toggle-done]");
+    const btn = e.target.closest("[data-del],[data-step],[data-toggle-done],[data-edit-min]");
     if(btn){ startHold(btn, chip, e); e.preventDefault(); return; }
   }
   const card = e.target.closest(".card");
@@ -803,7 +851,7 @@ function up(e){
 
   pushUndo();                       // перенос — одно действие, одна отмена
   if(!copy) items = items.filter(i=>i!==src);
-  addBlock(d.task,day,src.min,src.done,pos);
+  addBlock(d.task,day,src.min,pos,{done:src.done, did:src.did});
   commitLocal();
 }
 
@@ -828,7 +876,7 @@ document.getElementById("copy").onclick = ()=>{
       const dt = dayDate(d);
       lines.push(`${DNAME[(dt.getDay()+6)%7]} ${dt.getDate()} ${MON[dt.getMonth()]} — ${fmt(tot)}`);
     }
-    day.forEach(i=>lines.push(`  ${i.done?"✓":"•"} ${byId(i.task).name} — ${fmt(i.min)}`));
+    day.forEach(i=>lines.push(`  ${i.done?"✓":"•"} ${byId(i.task).name} — ${prog(i)}`));
     lines.push("");
   }
   const txt = lines.length>2 ? lines.join("\n").trim() : "Пусто";
@@ -844,7 +892,7 @@ document.getElementById("export").onclick = ()=>{
     roles: ROLES,
     blocks: items.map(i=>({ task:i.task, name:byId(i.task).name, role:ROLES[byId(i.task).role].name,
       day:i.day, date: i.day===BACKLOG ? null : iso(i.day),      // day -1 = «без дня»
-      minutes:i.min, hours:+(i.min/60).toFixed(2), done: !!i.done })) };
+      minutes:i.min, hours:hrs(i.min), worked:i.did||0, done: !!i.done })) };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
   const a = document.createElement("a"); a.href=url; a.download="plan-"+iso(0)+".json";
   document.body.appendChild(a); a.click(); a.remove();
@@ -872,9 +920,10 @@ document.getElementById("file").onchange = ev=>{
                     : b.hours!==undefined ? Math.round(b.hours*60)
                     : b.len!==undefined ? b.len*30 : 30;      // старый формат со слотами
           if((day!==BACKLOG && (day<0 || day>=DAYS)) || !min) return;
-          const done = !!b.done;
+          const done = !!b.done, did = b.worked!==undefined ? +b.worked||0 : 0;
           const ex = next.find(i=>i.task===t.id && i.day===day);
-          if(ex){ ex.min += min; ex.done = ex.done || done; } else next.push({task:t.id, day, min, done});
+          if(ex){ ex.min += min; ex.did += did; ex.done = ex.done || done; }
+          else next.push({task:t.id, day, min, did, done});
         });
         pushUndo(); items = next; commitLocal();
         flash("import", (rolesLoaded ? "Роли и план загружены: " : "Загружено: ")+next.length, "Импорт JSON");
