@@ -151,7 +151,7 @@
     <div class="panel pal" id="pal"></div>
     <div class="week" id="week"></div>
   </div>
-  <p class="tip">Первый столбец «Без дня» — для того, что надо сделать на неделе, но день ещё не выбран: клади туда и растаскивай по дням, когда решишь. В недельную загрузку и среднее эти блоки не входят, их объём считается отдельно. Кидай задачу в день — она ложится в пул на 30 минут. На блоке написано <b>отработано / запланировано</b>: «−» и «+» отмечают отработанные получасовые отрезки, а фон заливается по мере выполнения. Запланированное время задаётся числом в часах — удержи время на блоке, впиши, например, 1.5, и нажми Enter. Кнопки на блоке («✓» выполнено, «−» / «+» отрезки, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+  <p class="tip">Первый столбец «Без дня» — для того, что надо сделать на неделе, но день ещё не выбран: клади туда и растаскивай по дням, когда решишь. В недельную загрузку и среднее эти блоки не входят, их объём считается отдельно. Кидай задачу в день — она ложится в пул на 30 минут. Одну и ту же задачу можно положить в день несколькими карточками: кинул ещё раз — появится отдельная, со своим временем и прогрессом (или перетащи существующую с зажатым ⌘ — получишь копию). На блоке написано <b>отработано / запланировано</b>: «−» и «+» отмечают отработанные получасовые отрезки, а фон заливается по мере выполнения. Запланированное время задаётся числом в часах — удержи время на блоке, впиши, например, 1.5, и нажми Enter. Кнопки на блоке («✓» выполнено, «−» / «+» отрезки, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -195,9 +195,13 @@ const escapeHtml = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":
 let ROLES = [], TASKS = [];
 const byId = id => TASKS.find(t=>t.id===id);
 
-let items = [];             // {task, day, min}
+let items = [];             // {id, task, day, min, did, done}
 let localUpdatedAt = null;  // ISO-время последнего локального изменения / последней синхронизации
-const find = (task,day) => items.find(i=>i.task===task && i.day===day);
+// у блока собственный id: одна задача может лежать в дне несколькими карточками
+const find = id => items.find(i=>i.id===id);
+const normalize = list => (Array.isArray(list) ? list : []).map(b=>({
+  id: b.id || genId("block"), task: b.task, day: b.day,
+  min: b.min, did: b.did||0, done: !!b.done }));
 
 const pal = document.getElementById("pal");
 const week = document.getElementById("week");
@@ -367,7 +371,7 @@ function render(){
     const el = document.createElement("div");
     el.className="chip" + (i.done ? " done" : ""); el.style.setProperty("--c",t.c);
     el.style.setProperty("--p", Math.min(100, Math.round((i.did||0)/i.min*100)) + "%");
-    el.dataset.task=i.task; el.dataset.day=i.day;
+    el.dataset.id=i.id; el.dataset.task=i.task; el.dataset.day=i.day;
     el.innerHTML = `<div class="nm">${escapeHtml(t.name)}</div>
       <div class="row"><span class="b done-toggle" data-toggle-done="1" title="${i.done?"Вернуть в план":"Отметить выполненным"}">${i.done?"↺":"✓"}</span><span class="b" data-step="-1">−</span><span class="b" data-step="1">+</span>
       <span class="h" data-edit-min="1" title="Отработано из запланированного — удержи, чтобы задать план">${prog(i)}</span></div>
@@ -379,17 +383,20 @@ function render(){
 }
 
 function totals(){
-  const perRole = ROLES.map(()=>0), perDay = Array(DAYS).fill(0), cnt = {}, sum = {};
+  const perRole = ROLES.map(()=>0), perDay = Array(DAYS).fill(0), days = {}, sum = {};
   let backlog = 0;
   items.forEach(i=>{ const t=byId(i.task); if(!t) return;
     perRole[t.role]+=i.min;
     if(i.day===BACKLOG) backlog += i.min;
-    else { perDay[i.day]+=i.min; cnt[i.task]=(cnt[i.task]||0)+1; }   // «Nд» считает только реальные дни
+    else {                            // «Nд» считает дни, а не карточки: их может быть несколько в дне
+      perDay[i.day]+=i.min;
+      (days[i.task] ||= new Set()).add(i.day);
+    }
     sum[i.task]=(sum[i.task]||0)+i.min; });
   document.querySelectorAll("[data-stat]").forEach(e=>{
-    const id=e.dataset.stat;
-    e.innerHTML = cnt[id] ? `<b>${cnt[id]}д</b> ${fmt(sum[id])}`
-                : sum[id] ? fmt(sum[id]) : "";
+    const id=e.dataset.stat, n=days[id]?.size;
+    e.innerHTML = n ? `<b>${n}д</b> ${fmt(sum[id])}`
+               : sum[id] ? fmt(sum[id]) : "";
   });
   document.querySelectorAll("[data-role]").forEach(e=>{
     const v=perRole[+e.dataset.role]; e.textContent = v ? fmt(v) : "";
@@ -417,7 +424,7 @@ function persistLocal(){
 function loadLocal(){
   try{
     const raw = localStorage.getItem(STORE_KEY);
-    if(raw){ const obj = JSON.parse(raw); items = Array.isArray(obj.items) ? obj.items : []; localUpdatedAt = obj.updatedAt || null; }
+    if(raw){ const obj = JSON.parse(raw); items = normalize(obj.items); localUpdatedAt = obj.updatedAt || null; }
   }catch(e){}
 }
 function commitLocal(){
@@ -425,7 +432,7 @@ function commitLocal(){
   persistLocal(); render(); scheduleSync();
 }
 function applyRemote(remoteItems, remoteUpdatedAt){
-  items = remoteItems || []; localUpdatedAt = remoteUpdatedAt;
+  items = normalize(remoteItems); localUpdatedAt = remoteUpdatedAt;
   undoStack = []; updateUndoBtn();   // отменять в состояние до чужой правки нельзя
   persistLocal(); render();
 }
@@ -640,29 +647,22 @@ function flatIndexFor(arr,day,pos){
   if(!idx.length) return arr.length;
   return pos>=idx.length ? idx[idx.length-1]+1 : idx[pos];
 }
-function addBlock(task,day,min,pos,extra){   // чистая мутация, без undo и записи
-  const it = find(task,day);
-  if(it){                                    // та же задача в этом дне — сливаем объём
-    it.min += min;
-    if(extra?.did) it.did = (it.did||0) + extra.did;
-    return;
-  }
-  const block = {task,day,min,did:extra?.did||0,done:!!extra?.done};
+function add(task,day,min,pos){               // всегда отдельная карточка, ничего не сливаем
+  pushUndo();
+  const block = {id:genId("block"), task, day, min, did:0, done:false};
   items.splice(pos===undefined ? items.length : flatIndexFor(items,day,pos), 0, block);
+  commitLocal();
 }
-function add(task,day,min,pos){
-  pushUndo(); addBlock(task,day,min,pos); commitLocal();
-}
-function bumpDid(task,day,dir){              // «+»/«−» отмечают отработанные отрезки
-  const it = find(task,day); if(!it) return;
+function bumpDid(id,dir){                     // «+»/«−» отмечают отработанные отрезки
+  const it = find(id); if(!it) return;
   const next = Math.max(0, (it.did||0) + dir*STEP);
-  if(next === (it.did||0)) return;           // на нуле «−» ничего не делает
+  if(next === (it.did||0)) return;            // на нуле «−» ничего не делает
   pushUndo();
   it.did = next;
   commitLocal();
 }
-function setPlanned(task,day,hours){         // запланированное время вводится числом
-  const it = find(task,day); if(!it) return;
+function setPlanned(id,hours){                // запланированное время вводится числом
+  const it = find(id); if(!it) return;
   if(!isFinite(hours)) return;
   const min = Math.max(STEP, Math.round(hours*60/STEP)*STEP);   // кратно 30 минутам
   if(min === it.min) return;
@@ -670,23 +670,24 @@ function setPlanned(task,day,hours){         // запланированное �
   it.min = min;
   commitLocal();
 }
-function toggleDone(task,day){
-  const it = find(task,day); if(!it) return;
+function toggleDone(id){
+  const it = find(id); if(!it) return;
   pushUndo();
   it.done = !it.done;
   commitLocal();
 }
-function removeBlock(task,day){
-  const t = byId(task);
-  if(!confirm(`Убрать «${t ? t.name : task}» из этого дня?`)) return;
+function removeBlock(id){
+  const it = find(id); if(!it) return;
+  const t = byId(it.task);
+  if(!confirm(`Убрать «${t ? t.name : it.task}» из плана?`)) return;
   pushUndo();
-  items = items.filter(i=>!(i.task===task && i.day===day));
+  items = items.filter(i=>i.id!==id);
   commitLocal();
 }
 
 /* ---------- ввод запланированного времени ---------- */
-function openMinEditor(chip, task, day){
-  const it = find(task,day); if(!it) return;
+function openMinEditor(chip, id){
+  const it = find(id); if(!it) return;
   const h = chip.querySelector(".h"); if(!h) return;
   const input = document.createElement("input");
   input.className = "h-edit"; input.type = "text"; input.inputMode = "decimal";
@@ -697,7 +698,7 @@ function openMinEditor(chip, task, day){
     if(!input.isConnected) return;
     const v = parseFloat(input.value.replace(",", "."));
     input.replaceWith(h);
-    if(save) setPlanned(task, day, v);
+    if(save) setPlanned(id, v);
   };
   input.addEventListener("keydown", e=>{
     if(e.key==="Enter") close(true);
@@ -709,14 +710,14 @@ function openMinEditor(chip, task, day){
 /* ---------- удержание кнопок на блоке ---------- */
 let hold = null;
 function startHold(btn, chip, e){
-  const task = chip.dataset.task, day = +chip.dataset.day;
+  const id = chip.dataset.id;
   btn.classList.add("hold");
   hold = { btn, x0:e.clientX, y0:e.clientY, timer: setTimeout(()=>{
     endHold();
-    if(btn.dataset.del) removeBlock(task,day);
-    else if(btn.dataset.step) bumpDid(task,day,+btn.dataset.step);
-    else if(btn.dataset.editMin) openMinEditor(chip,task,day);
-    else toggleDone(task,day);
+    if(btn.dataset.del) removeBlock(id);
+    else if(btn.dataset.step) bumpDid(id,+btn.dataset.step);
+    else if(btn.dataset.editMin) openMinEditor(chip,id);
+    else toggleDone(id);
   }, HOLD_MS) };
 }
 function endHold(){
@@ -763,7 +764,7 @@ document.addEventListener("pointerdown", e=>{
   downPool = (!card && !chip) ? e.target.closest(".pool") : null;
   if(!card && !chip) return;
   drag = {mode: card?"new":"move", task: card?card.dataset.task:chip.dataset.task,
-          from: chip?+chip.dataset.day:null, el: card||chip,
+          id: chip?chip.dataset.id:null, el: card||chip,
           x0:e.clientX, y0:e.clientY, moved:false, copy:false};
   e.target.setPointerCapture(e.pointerId);
   e.preventDefault();
@@ -829,29 +830,28 @@ function up(e){
   const pool = poolAt(e.clientX,e.clientY);
   const copy = d.mode==="move" && (e.metaKey||e.altKey||e.ctrlKey||d.copy);
   if(!pool){
-    if(d.mode==="move" && !copy) removeBlock(d.task, d.from);   // промах мимо дня переспросит
+    if(d.mode==="move" && !copy) removeBlock(d.id);   // промах мимо дня переспросит
     return;
   }
   const day = +pool.dataset.day;
   const pos = dropPos(pool, e.clientY, d.el);
   if(d.mode==="new"){ add(d.task,day,STEP,pos); return; }
-  const src = find(d.task,d.from); if(!src) return;
+  const src = find(d.id); if(!src) return;
 
-  if(day===d.from){                 // перестановка внутри дня
-    if(copy) return;
-    const from = items.indexOf(src); if(from<0) return;
-    const rest = items.slice(); rest.splice(from,1);
-    const to = flatIndexFor(rest,day,pos);
-    if(to===from) return;           // блок остался на месте
+  if(copy){                         // ⌘ — рядом появляется отдельная карточка
     pushUndo();
-    rest.splice(to,0,src); items = rest;
+    items.splice(flatIndexFor(items,day,pos), 0, {...src, id:genId("block"), day});
     commitLocal();
     return;
   }
 
-  pushUndo();                       // перенос — одно действие, одна отмена
-  if(!copy) items = items.filter(i=>i!==src);
-  addBlock(d.task,day,src.min,pos,{done:src.done, did:src.did});
+  const from = items.indexOf(src);  // перенос и перестановка — одно и то же действие
+  const rest = items.slice(); rest.splice(from,1);
+  const to = flatIndexFor(rest,day,pos);
+  if(day===src.day && to===from) return;    // блок остался на месте
+  pushUndo();
+  src.day = day;
+  rest.splice(to,0,src); items = rest;
   commitLocal();
 }
 
@@ -921,9 +921,7 @@ document.getElementById("file").onchange = ev=>{
                     : b.len!==undefined ? b.len*30 : 30;      // старый формат со слотами
           if((day!==BACKLOG && (day<0 || day>=DAYS)) || !min) return;
           const done = !!b.done, did = b.worked!==undefined ? +b.worked||0 : 0;
-          const ex = next.find(i=>i.task===t.id && i.day===day);
-          if(ex){ ex.min += min; ex.did += did; ex.done = ex.done || done; }
-          else next.push({task:t.id, day, min, did, done});
+          next.push({id:genId("block"), task:t.id, day, min, did, done});  // каждая запись — своя карточка
         });
         pushUndo(); items = next; commitLocal();
         flash("import", (rolesLoaded ? "Роли и план загружены: " : "Загружено: ")+next.length, "Импорт JSON");
