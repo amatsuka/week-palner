@@ -151,7 +151,7 @@
     <div class="panel pal" id="pal"></div>
     <div class="week" id="week"></div>
   </div>
-  <p class="tip">Первый столбец «Без дня» — для того, что надо сделать на неделе, но день ещё не выбран: клади туда и растаскивай по дням, когда решишь. В недельную загрузку и среднее эти блоки не входят, их объём считается отдельно. Кидай задачу в день — она ложится в пул на 30 минут. Одну и ту же задачу можно положить в день несколькими карточками: кинул ещё раз — появится отдельная, со своим временем и прогрессом (или перетащи существующую с зажатым ⌘ — получишь копию). На блоке написано <b>отработано / запланировано</b>: «−» и «+» отмечают отработанные получасовые отрезки, а фон заливается по мере выполнения. Запланированное время задаётся числом в часах — удержи время на блоке, впиши, например, 1.5, и нажми Enter. Кнопки на блоке («✓» выполнено, «−» / «+» отрезки, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
+  <p class="tip">Первый столбец «Без дня» — для того, что надо сделать на неделе, но день ещё не выбран: клади туда и растаскивай по дням, когда решишь. В недельную загрузку и среднее эти блоки не входят, их объём считается отдельно. Кидай задачу в день — она ложится в пул на 30 минут. Одну и ту же задачу можно положить в день несколькими карточками: кинул ещё раз — появится отдельная, со своим временем и прогрессом (или перетащи существующую с зажатым ⌘ — получишь копию). Не успел доделать? Тащи с зажатым <b>Option</b> (Alt) — уедет карточка с остатком, а в исходной запланированное станет равно уже отработанному. На блоке написано <b>отработано / запланировано</b>: «−» и «+» отмечают отработанные получасовые отрезки, а фон заливается по мере выполнения. Запланированное время задаётся числом в часах — удержи время на блоке, впиши, например, 1.5, и нажми Enter. Кнопки на блоке («✓» выполнено, «−» / «+» отрезки, «×» убрать) срабатывают <b>по удержанию</b>, а не по короткому тапу — чтобы случайное касание на телефоне ничего не меняло; удаление ещё и переспросит. Промахнулся — жми «Отменить». Времени начала нет: порядок внутри дня задаёшь сам — тяни блок вверх-вниз и бросай между соседями, полоска показывает, куда он встанет. Так же перетаскивается и в другой день, с зажатым ⌘ — копия. План сохраняется в браузере и, при входе, синхронизируется через Supabase; можно также выгружать/загружать JSON.</p>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -765,7 +765,7 @@ document.addEventListener("pointerdown", e=>{
   if(!card && !chip) return;
   drag = {mode: card?"new":"move", task: card?card.dataset.task:chip.dataset.task,
           id: chip?chip.dataset.id:null, el: card||chip,
-          x0:e.clientX, y0:e.clientY, moved:false, copy:false};
+          x0:e.clientX, y0:e.clientY, moved:false, copy:false, split:false};
   e.target.setPointerCapture(e.pointerId);
   e.preventDefault();
 });
@@ -782,15 +782,28 @@ document.addEventListener("pointermove", e=>{
     document.body.appendChild(ghost);
   }
   ghost.style.left=(e.clientX+12)+"px"; ghost.style.top=(e.clientY+12)+"px";
-  drag.copy = e.metaKey||e.altKey||e.ctrlKey;
-  ghost.classList.toggle("copy", drag.mode==="move" && drag.copy);
+  drag.copy  = e.metaKey||e.ctrlKey;          // ⌘/Ctrl — копия
+  drag.split = e.altKey;                      // Option/Alt — отщепить остаток
+  const rest = splitRest(drag);
+  ghost.classList.toggle("copy", drag.mode==="move" && drag.copy && !rest);
+  ghost.textContent = rest ? `${byId(drag.task).name} — остаток ${hrs(rest)} ч` : byId(drag.task).name;
   document.querySelectorAll(".pool.hot").forEach(p=>p.classList.remove("hot"));
   const p = poolAt(e.clientX,e.clientY);
   if(p){
     p.classList.add("hot");
-    showDropLine(p, dropPos(p, e.clientY, drag.el), drag.el, byId(drag.task).c);
+    const excl = dragKeeps(drag) ? null : drag.el;   // исходная карточка остаётся — она в счёт
+    showDropLine(p, dropPos(p, e.clientY, excl), excl, byId(drag.task).c);
   } else hideDropLine();
 });
+
+// остаток, который отщепится по Option: сколько запланировано сверх отработанного
+function splitRest(d){
+  if(d.mode!=="move" || !d.split) return 0;
+  const src = find(d.id); if(!src) return 0;
+  const did = src.did||0;
+  return did>0 && src.min>did ? src.min-did : 0;   // нечего делить — обычный перенос
+}
+const dragKeeps = d => d.mode==="move" && (d.copy || splitRest(d) > 0);
 
 let hl = null;
 function setHl(task){
@@ -828,17 +841,29 @@ function up(e){
     return;
   }
   const pool = poolAt(e.clientX,e.clientY);
-  const copy = d.mode==="move" && (e.metaKey||e.altKey||e.ctrlKey||d.copy);
+  d.copy  = d.copy  || e.metaKey || e.ctrlKey;
+  d.split = d.split || e.altKey;
+  const splitMin = splitRest(d);              // 0, если делить нечего — тогда обычный перенос
+  const keeps = dragKeeps(d);                 // исходная карточка остаётся на месте
   if(!pool){
-    if(d.mode==="move" && !copy) removeBlock(d.id);   // промах мимо дня переспросит
+    if(d.mode==="move" && !keeps) removeBlock(d.id);   // промах мимо дня переспросит
     return;
   }
   const day = +pool.dataset.day;
-  const pos = dropPos(pool, e.clientY, d.el);
+  const pos = dropPos(pool, e.clientY, keeps ? null : d.el);
   if(d.mode==="new"){ add(d.task,day,STEP,pos); return; }
   const src = find(d.id); if(!src) return;
 
-  if(copy){                         // ⌘ — рядом появляется отдельная карточка
+  if(splitMin){                     // Option — остаток уезжает отдельной карточкой
+    pushUndo();
+    src.min = src.did;              // в исходной остаётся ровно отработанное
+    items.splice(flatIndexFor(items,day,pos), 0,
+      {...src, id:genId("block"), day, min:splitMin, did:0, done:false});
+    commitLocal();
+    return;
+  }
+
+  if(d.copy){                       // ⌘ — рядом появляется отдельная карточка
     pushUndo();
     items.splice(flatIndexFor(items,day,pos), 0, {...src, id:genId("block"), day});
     commitLocal();
